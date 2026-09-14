@@ -1,0 +1,839 @@
+================================================================================
+TOPIC 01 : HOW PHP WORKS - REQUEST LIFECYCLE, SAPI & SHARED-NOTHING
+================================================================================
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+WHAT IS THIS TOPIC?
+This topic explains what actually happens between the moment a user types a URL
+in the browser and the moment HTML appears on their screen. It also explains the
+single most important architectural fact about PHP: every request starts from
+zero memory and ends by throwing everything away. This is called the
+"shared-nothing architecture".
+
+WHY IS IT IMPORTANT?
+- It is the #1 opening question in most PHP interviews ("What happens when you
+  request a PHP page?"). Interviewers use it to judge whether you understand the
+  language or only memorised syntax.
+- Almost every other PHP concept exists because of this model:
+  sessions exist because memory is destroyed,
+  caching exists because work is repeated on every request,
+  OPcache exists because compilation is repeated on every request.
+- Bugs like "my variable is empty on the next page" are caused by not
+  understanding this model.
+
+
+--------------------------------------------------------------------------------
+2. COMPLETE EXPLANATION (BASIC -> ADVANCED)
+--------------------------------------------------------------------------------
+
+2.1 BASIC LEVEL - PHP IS A SCRIPT THAT RUNS AND DIES
+----------------------------------------------------
+PHP is a server-side language. The browser never sees PHP code. It only sees the
+output (usually HTML or JSON) that PHP produced.
+
+The simple version of the flow:
+
+    Browser  ->  Web server  ->  PHP  ->  runs your script  ->  output
+                                                                  |
+    Browser  <-------------------  HTML/JSON response  <-----------+
+
+The important part: once the output is sent, the PHP process forgets everything.
+Variables, objects, database connections, loaded classes - all destroyed.
+The next request starts completely fresh.
+
+
+2.2 THE FIVE STAGES OF A PHP REQUEST
+------------------------------------
+Every request goes through these stages:
+
+    STAGE 1: MODULE INITIALISATION (MINIT)
+       The PHP engine starts. Extensions (PDO, mbstring, curl, etc.) are loaded.
+       php.ini is read.
+       This happens ONCE when the server process starts, not per request.
+
+    STAGE 2: REQUEST INITIALISATION (RINIT)
+       A request arrives. PHP prepares the environment for this one request:
+       superglobals ($_GET, $_POST, $_SERVER...) are filled,
+       a fresh symbol table (variable memory) is created.
+
+    STAGE 3: COMPILATION
+       Your .php file is read as text.
+       Lexer  : breaks the text into tokens (T_ECHO, T_VARIABLE, T_STRING...).
+       Parser : builds an AST (Abstract Syntax Tree = tree structure of code).
+       Compiler: converts the AST into "opcodes" (low-level instructions).
+       PHP is NOT compiled to machine code. It is compiled to opcodes.
+
+    STAGE 4: EXECUTION
+       The Zend Engine (PHP's virtual machine) executes the opcodes one by one.
+       This is where your echo, loops, database queries actually run.
+       Output is written to the output buffer and sent to the web server.
+
+    STAGE 5: REQUEST SHUTDOWN (RSHUTDOWN)
+       Destructors run, register_shutdown_function() callbacks run,
+       session data is written, all memory for this request is freed.
+       Everything is destroyed.
+
+    (Later, when the server stops: MSHUTDOWN - extensions are unloaded.)
+
+KEY POINT FOR INTERVIEWS:
+Stages 2 to 5 repeat for EVERY single request. Stage 1 happens once per process.
+
+
+2.3 WHAT IS A SAPI?
+-------------------
+SAPI = Server API. It is the "adapter" that connects PHP to whatever is calling
+it. The same PHP code behaves slightly differently depending on the SAPI.
+
+    +---------------+------------------------------------------------------+
+    | SAPI          | Description and where it is used                     |
+    +---------------+------------------------------------------------------+
+    | cli           | Command line. Used for scripts, cron jobs, queue     |
+    |               | workers, composer, artisan-style commands.           |
+    |               | No time limit by default. Has $argv/$argc.           |
+    +---------------+------------------------------------------------------+
+    | apache2handler| PHP runs INSIDE the Apache process (mod_php).        |
+    | (mod_php)     | This is what XAMPP uses by default. Simple to set    |
+    |               | up, uses more memory (every Apache worker carries    |
+    |               | a full PHP interpreter).                             |
+    +---------------+------------------------------------------------------+
+    | fpm-fcgi      | PHP-FPM (FastCGI Process Manager). PHP runs as a     |
+    | (PHP-FPM)     | SEPARATE service. Nginx/Apache forwards requests to  |
+    |               | it. This is the production standard today. Better    |
+    |               | memory control, process pools, easier scaling.       |
+    +---------------+------------------------------------------------------+
+    | cgi-fcgi      | Older FastCGI mode. Rarely used now.                 |
+    +---------------+------------------------------------------------------+
+    | phpdbg        | Interactive debugger SAPI.                           |
+    +---------------+------------------------------------------------------+
+
+You can check which one you are running with php_sapi_name() or PHP_SAPI.
+
+DIFFERENCES YOU MUST KNOW (CLI vs WEB):
+    - CLI has no max_execution_time limit by default (web usually 30s).
+    - CLI has $argv and $argc; web has $_GET and $_POST.
+    - CLI has no $_SESSION unless you start it manually and it makes little sense.
+    - CLI output goes to the terminal (STDOUT); web output goes to the browser.
+    - CLI can return an exit code (0 = success) that shell scripts can check.
+    - CLI often loads a DIFFERENT php.ini than the web server. This is a very
+      common source of "it works in the browser but not in the terminal" bugs.
+
+
+2.4 THE FULL PICTURE WITH A WEB SERVER
+--------------------------------------
+This is the answer interviewers want for "what happens when you type a URL":
+
+     1. Browser resolves the domain via DNS to an IP address.
+     2. Browser opens a TCP connection (and a TLS handshake if HTTPS).
+     3. Browser sends an HTTP request:  GET /product.php?id=5 HTTP/1.1
+     4. Web server (Apache/Nginx) receives it.
+     5. Web server checks the file extension / config.
+           - Static file (.css, .jpg)  -> served directly, PHP is never involved.
+           - .php file                 -> handed to PHP (via mod_php or FPM).
+     6. PHP checks OPcache:
+           - Opcodes already cached for this file? -> skip compilation (fast).
+           - Not cached? -> lex, parse, compile, then store in OPcache.
+     7. Zend Engine executes the opcodes.
+           Your code runs: connects to MySQL, runs queries, builds HTML.
+     8. Output is returned to the web server.
+     9. Web server adds HTTP headers and sends the response to the browser.
+    10. PHP destroys all memory for that request.
+    11. Browser parses the HTML and makes new requests for CSS/JS/images.
+
+The database (MySQL) is a separate service. PHP connects to it over a socket or
+TCP for each request, uses it, and disconnects at shutdown.
+
+
+2.5 ADVANCED - SHARED-NOTHING ARCHITECTURE
+------------------------------------------
+"Shared-nothing" means: no request shares memory with any other request.
+
+Compare with other languages:
+
+    +------------------+--------------------------+-------------------------+
+    | Aspect           | PHP (traditional)        | Node.js / Java / Go     |
+    +------------------+--------------------------+-------------------------+
+    | Process model    | Script runs and dies per | Long-running process    |
+    |                  | request                  | handles many requests   |
+    +------------------+--------------------------+-------------------------+
+    | Memory between   | Nothing survives         | Everything survives     |
+    | requests         |                          | until restart           |
+    +------------------+--------------------------+-------------------------+
+    | Memory leak      | Almost harmless - memory | Serious - leaks grow    |
+    | impact           | is freed every request   | until the app crashes   |
+    +------------------+--------------------------+-------------------------+
+    | Global state     | Impossible by default    | Easy (and dangerous)    |
+    +------------------+--------------------------+-------------------------+
+    | Crash blast      | One request fails, other | A crash can take down   |
+    | radius           | requests unaffected      | many requests           |
+    +------------------+--------------------------+-------------------------+
+    | Sharing data     | Needs an external store  | Just use a variable     |
+    | between requests | (session, DB, Redis)     |                         |
+    +------------------+--------------------------+-------------------------+
+
+ADVANTAGES OF SHARED-NOTHING:
+    - Extremely robust. A fatal error in one request cannot corrupt another.
+    - Simple mental model. You never worry about stale global state.
+    - Easy horizontal scaling. Any server can handle any request, because no
+      server holds special in-memory state. Just add more servers.
+    - Sloppy memory management is tolerated because everything is freed anyway.
+
+DISADVANTAGES OF SHARED-NOTHING:
+    - Repeated work on every request: re-reading config, re-building the DI
+      container, re-connecting to the database, re-compiling files.
+      This is why OPcache and caching layers are essential.
+    - No in-process cache that survives requests. You need Redis/Memcached/APCu.
+    - No native way to keep a persistent connection (like a WebSocket).
+
+HOW MODERN PHP WORKS AROUND IT (know these names):
+    - OPcache: keeps compiled opcodes in shared memory so compilation is skipped.
+      This alone gives a large speed increase and is on by default in PHP 8.
+    - Persistent process runtimes: Swoole, RoadRunner, FrankenPHP, Laravel Octane.
+      They keep PHP alive between requests for speed. The trade-off: your code
+      must now be leak-free and stateless, because state DOES survive there.
+
+
+--------------------------------------------------------------------------------
+3. REAL-TIME EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: "MY LOGIN DISAPPEARS ON THE NEXT PAGE"
+A junior developer stores the logged-in user in a normal variable:
+    $loggedInUser = 'ravi';
+On the next page it is empty. Reason: the request ended, memory was destroyed.
+Real fix: store the user id in $_SESSION, which is saved to disk/Redis and
+re-loaded on the next request. Sessions exist precisely because of
+shared-nothing.
+
+EXAMPLE 2: E-COMMERCE PRODUCT PAGE
+Every visit to /product.php?id=99 re-runs the same work: connect to MySQL,
+fetch the product, fetch category, fetch reviews, render HTML. For 10,000
+visitors that is 10,000 identical database round trips. Real teams solve this by
+caching the rendered block in Redis with a TTL, so requests 2..10000 skip the
+database entirely. You only understand why this is needed once you understand
+that nothing is remembered between requests.
+
+EXAMPLE 3: DEPLOY GOES LIVE BUT USERS SEE OLD CODE
+The team deploys new PHP files, but users still see the old behaviour. Cause:
+OPcache is still serving the old compiled opcodes because
+opcache.validate_timestamps was turned off for performance. Real fix: reload
+PHP-FPM as part of the deploy script. This is a real production incident that
+happens constantly, and it comes straight from stage 6 of the lifecycle.
+
+EXAMPLE 4: CRON JOB WORKS, WEB PAGE DOES NOT
+A report script runs perfectly with "php report.php" but times out in the
+browser after 30 seconds. Cause: CLI has no execution time limit, web does.
+Real fix: move long work to a CLI/queue worker instead of a web request. This is
+why every serious PHP application has a queue.
+
+EXAMPLE 5: SCALING FOR A SALE EVENT
+A company expects 10x traffic. Because PHP is shared-nothing, they simply add
+more PHP-FPM servers behind a load balancer and move sessions to Redis so any
+server can serve any user. No code change is required. That easy scaling IS the
+main business benefit of shared-nothing.
+
+
+--------------------------------------------------------------------------------
+4. USE CASES
+--------------------------------------------------------------------------------
+
+WHEN THE PHP MODEL IS A GOOD FIT
+    - Traditional websites and web applications (CMS, e-commerce, dashboards).
+    - REST APIs and JSON backends.
+    - Any workload made of many short, independent requests.
+    - Teams that need easy horizontal scaling without complex state handling.
+
+WHEN THE PHP MODEL IS A BAD FIT (know this for senior questions)
+    - Real-time WebSocket servers (chat, live notifications). A dying script
+      cannot hold an open connection. Use Swoole/ReactPHP or a different stack.
+    - Long-running background jobs inside a web request (report generation,
+      video processing, bulk imports). Use CLI workers + a queue instead.
+    - In-memory state shared across users (leaderboards, live counters).
+      Use Redis, not PHP variables.
+    - High-frequency low-latency computation where per-request bootstrap cost
+      matters more than the work itself.
+
+USE CASES FOR EACH SAPI
+    - CLI      : cron jobs, queue workers, migrations, one-off maintenance,
+                 data imports, composer, deployment scripts.
+    - mod_php  : local development (XAMPP), small shared-hosting sites.
+    - PHP-FPM  : production. Anything with real traffic.
+
+
+--------------------------------------------------------------------------------
+5. CODE EXAMPLES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CODE 1 : PROVING SHARED-NOTHING (the classic demo)
+File: shared_nothing.php  -  open it in the browser and refresh 5 times
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // A plain variable: recreated from scratch on every single request.
+    $requestCounter = 0;
+    $requestCounter++;
+
+    // A static variable: survives multiple CALLS, but NOT multiple REQUESTS.
+    function countCalls(): int
+    {
+        static $calls = 0;   // initialised only on the first call in THIS request
+        $calls++;
+        return $calls;
+    }
+
+    countCalls();
+    countCalls();
+    $callsThisRequest = countCalls();
+
+    // A session value: this is the only one that survives across requests,
+    // because it is written to storage and re-loaded next time.
+    session_start();
+    $_SESSION['visits'] = ($_SESSION['visits'] ?? 0) + 1;
+
+    echo "Plain variable  : {$requestCounter}\n";
+    echo "Static in func  : {$callsThisRequest}\n";
+    echo "Session visits  : {$_SESSION['visits']}\n";
+
+    EXPECTED OUTPUT (refresh 1, 2, 3):
+        Plain variable  : 1          Plain variable  : 1        Plain variable  : 1
+        Static in func  : 3          Static in func  : 3        Static in func  : 3
+        Session visits  : 1          Session visits  : 2        Session visits  : 3
+
+
+--------------------------------------------------------------------------------
+CODE 2 : INSPECTING THE CURRENT ENVIRONMENT
+File: environment.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // Which SAPI is running this script right now?
+    $sapi = PHP_SAPI;                    // constant form
+    // Equivalent: $sapi = php_sapi_name();
+
+    $isCli = ($sapi === 'cli' || $sapi === 'phpdbg');
+
+    echo "PHP version      : " . PHP_VERSION . PHP_EOL;
+    echo "SAPI             : {$sapi}" . PHP_EOL;
+    echo "Running in CLI   : " . ($isCli ? 'yes' : 'no') . PHP_EOL;
+    echo "Loaded php.ini   : " . (php_ini_loaded_file() ?: 'none') . PHP_EOL;
+    echo "Memory limit     : " . ini_get('memory_limit') . PHP_EOL;
+    echo "Max exec time    : " . ini_get('max_execution_time') . 's' . PHP_EOL;
+    echo "OPcache enabled  : " . (function_exists('opcache_get_status') &&
+                                  opcache_get_status(false) !== false ? 'yes' : 'no')
+                              . PHP_EOL;
+
+    if (!$isCli) {
+        echo "Request method   : " . ($_SERVER['REQUEST_METHOD'] ?? '-') . PHP_EOL;
+        echo "Request URI      : " . ($_SERVER['REQUEST_URI']    ?? '-') . PHP_EOL;
+    } else {
+        echo "Script arguments : " . implode(', ', array_slice($argv, 1)) . PHP_EOL;
+    }
+
+    EXPECTED OUTPUT (run as: php environment.php one two):
+        PHP version      : 8.5.4
+        SAPI             : cli
+        Running in CLI   : yes
+        Loaded php.ini   : C:\xampp\php\php.ini
+        Memory limit     : 512M
+        Max exec time    : 0s
+        OPcache enabled  : no
+        Script arguments : one, two
+
+
+--------------------------------------------------------------------------------
+CODE 3 : WATCHING THE SHUTDOWN STAGE HAPPEN
+File: lifecycle.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    final class DatabaseConnection
+    {
+        public function __construct(private string $name)
+        {
+            echo "[open]  connection '{$this->name}' created\n";
+        }
+
+        // Runs automatically during request shutdown, or when the last
+        // reference to the object disappears - whichever comes first.
+        public function __destruct()
+        {
+            echo "[close] connection '{$this->name}' destroyed\n";
+        }
+    }
+
+    // Registered callbacks run at the very end of the request,
+    // in the order they were registered - even after a fatal error.
+    register_shutdown_function(function (): void {
+        $peak = memory_get_peak_usage(true) / 1024 / 1024;
+        printf("[shutdown] peak memory: %.2f MB\n", $peak);
+    });
+
+    $db = new DatabaseConnection('primary');
+
+    echo "--- doing the actual work of the request ---\n";
+
+    // Script ends here. PHP now runs the shutdown stage.
+
+    EXPECTED OUTPUT:
+        [open]  connection 'primary' created
+        --- doing the actual work of the request ---
+        [shutdown] peak memory: 2.00 MB
+        [close] connection 'primary' destroyed
+
+
+--------------------------------------------------------------------------------
+6. CODE EXPLANATION
+--------------------------------------------------------------------------------
+
+EXPLANATION OF CODE 1 (shared_nothing.php)
+------------------------------------------
+    declare(strict_types=1);
+        Enables strict type checking for this file. Always put this on line 1
+        of every PHP file. Covered fully in file 31.
+
+    $requestCounter = 0; $requestCounter++;
+        A normal variable. It lives in the symbol table created in RINIT
+        (stage 2) and destroyed in RSHUTDOWN (stage 5). Because of that it is
+        ALWAYS 1 no matter how many times you refresh. This single line proves
+        shared-nothing.
+
+    static $calls = 0;
+        The "static" keyword inside a function means: keep this value between
+        CALLS of the function within the same request. The initialiser runs
+        only the first time. So after three calls it is 3 - but on the next
+        request it starts at 0 again. Static is per-request, not per-server.
+        This is the trap: people assume static persists globally. It does not.
+
+    session_start();
+        Tells PHP to load the session file identified by the PHPSESSID cookie
+        and populate $_SESSION. This is an EXTERNAL store (a file on disk by
+        default), which is exactly why the value survives.
+
+    $_SESSION['visits'] = ($_SESSION['visits'] ?? 0) + 1;
+        ?? is the null coalescing operator: use the left value if it exists and
+        is not null, otherwise use 0. It avoids an "undefined key" warning on
+        the first visit. Covered in file 09.
+
+    At shutdown PHP writes $_SESSION back to storage. That write is what makes
+    the next request able to see the value.
+
+
+EXPLANATION OF CODE 2 (environment.php)
+---------------------------------------
+    PHP_SAPI
+        A built-in constant holding the SAPI name: 'cli', 'apache2handler',
+        'fpm-fcgi', etc. Use it to write code that behaves correctly in both
+        contexts (for example, only sending HTTP headers when not in CLI).
+
+    php_ini_loaded_file()
+        Returns the full path of the php.ini actually in use, or false if none
+        was loaded. Extremely useful for debugging: XAMPP's CLI and Apache can
+        load different ini files, so an extension can be enabled in one and not
+        the other. The ?: is the short ternary: use the left value if truthy,
+        otherwise 'none'.
+
+    ini_get('memory_limit')
+        Reads a php.ini directive at runtime and returns it as a string
+        ('512M'). memory_limit caps how much memory ONE request may use.
+        max_execution_time caps how many seconds it may run; a value of 0 means
+        unlimited, which is why CLI shows 0.
+
+    opcache_get_status(false)
+        Returns OPcache statistics, or false when OPcache is disabled. The
+        false argument means "do not include the full list of cached scripts",
+        which keeps the call cheap. Wrapping it in function_exists() prevents a
+        fatal error when the extension is not installed at all.
+
+    array_slice($argv, 1)
+        $argv[0] is always the script filename itself, so slicing from index 1
+        gives only the real arguments the user passed.
+
+
+EXPLANATION OF CODE 3 (lifecycle.php)
+-------------------------------------
+    public function __construct(private string $name)
+        Constructor property promotion (PHP 8.0). Writing "private string $name"
+        directly in the constructor signature declares the property AND assigns
+        it automatically. It replaces three lines of boilerplate. See file 35.
+
+    public function __destruct()
+        A magic method called automatically when the object is destroyed. That
+        happens either when the last variable referencing it goes away, or at
+        request shutdown. In real applications destructors are used to close
+        file handles, flush buffers, or release locks.
+
+    register_shutdown_function(callback)
+        Registers a function to run during stage 5 (RSHUTDOWN). It runs even if
+        the script hits a fatal error or calls exit(). That property makes it the
+        standard way to catch fatal errors and log them (see file 48).
+
+    memory_get_peak_usage(true)
+        Returns the highest memory used during this request, in bytes. Passing
+        true reports the memory actually allocated from the operating system
+        rather than what PHP reports internally, which is the more honest
+        number. Dividing twice by 1024 converts bytes to megabytes.
+
+    NOTE ON OUTPUT ORDER: the shutdown function prints before the destructor
+    here because registered shutdown callbacks run before the final object
+    cleanup. Do not rely on destructor ordering at shutdown - if the order
+    matters, close resources explicitly instead.
+
+
+--------------------------------------------------------------------------------
+7. INTERVIEW QUESTIONS
+--------------------------------------------------------------------------------
+
+============================= BEGINNER =============================
+
+Q1. What happens when a user requests a PHP page?
+ANSWER:
+    The browser sends an HTTP request to the web server. The web server sees a
+    .php file and passes it to PHP (via mod_php or PHP-FPM). PHP initialises the
+    request, compiles the script into opcodes (or reuses cached opcodes from
+    OPcache), and the Zend Engine executes them. The script's output is returned
+    to the web server, which sends it back to the browser as an HTTP response.
+    Finally PHP destroys all memory used by that request.
+WHY THIS IS CORRECT:
+    It names the actual pipeline (server -> PHP -> compile -> execute ->
+    respond -> destroy) instead of a vague "PHP runs the file". Mentioning
+    opcodes and the teardown is what separates a strong answer from a weak one.
+
+Q2. Is PHP compiled or interpreted?
+ANSWER:
+    Both, in a sense. PHP source is compiled into opcodes (intermediate
+    instructions), and those opcodes are then interpreted/executed by the Zend
+    Engine virtual machine. It is not compiled to native machine code like C.
+WHY THIS IS CORRECT:
+    "Interpreted" alone is the common wrong answer. The compile-to-opcode step
+    is real and is exactly what OPcache caches.
+
+Q3. What is the difference between running PHP in the browser and in the
+    terminal?
+ANSWER:
+    They use different SAPIs. CLI has no execution time limit by default, uses
+    $argv/$argc instead of $_GET/$_POST, writes to STDOUT instead of an HTTP
+    response, sends no HTTP headers, and often loads a different php.ini file.
+WHY THIS IS CORRECT:
+    These are the practical differences that cause real bugs, especially the
+    separate php.ini.
+
+
+=========================== INTERMEDIATE ===========================
+
+Q4. What does "PHP is shared-nothing" mean and what follows from it?
+ANSWER:
+    Each request gets its own fresh memory and shares nothing with any other
+    request. Consequences: (a) variables never persist between requests, so
+    persistent data needs sessions, a database or Redis; (b) memory leaks are
+    mostly harmless because memory is freed at the end of every request;
+    (c) horizontal scaling is easy because no server holds special in-memory
+    state; (d) repeated bootstrap work on every request makes caching and
+    OPcache important.
+WHY THIS IS CORRECT:
+    It gives the definition AND the four practical consequences. Interviewers
+    are testing whether you can connect the model to real decisions.
+
+Q5. Why does a "static" variable not persist between requests?
+ANSWER:
+    Static variables live in the request's memory, which is destroyed at request
+    shutdown. Static means "keep the value between calls of this function within
+    one request", not "keep it on the server". To persist across requests you
+    need external storage.
+WHY THIS IS CORRECT:
+    It corrects the most frequent misunderstanding of the static keyword.
+EXAMPLE:
+    See CODE 1 above: the counter shows 3 on every refresh, never 6 or 9.
+
+Q6. What is the difference between mod_php and PHP-FPM?
+ANSWER:
+    mod_php embeds the PHP interpreter inside each Apache worker process, so
+    every worker - even one serving a CSS file - carries PHP in memory. PHP-FPM
+    runs PHP as a separate service with its own process pool; the web server
+    forwards only PHP requests to it. FPM uses memory better, can be tuned and
+    restarted independently, works with Nginx, and is the production standard.
+WHY THIS IS CORRECT:
+    It explains the memory and architecture difference, not just the names.
+
+Q7. Why do we need sessions at all?
+ANSWER:
+    Because HTTP is stateless and PHP is shared-nothing, the server remembers
+    nothing about a user between requests. A session stores data in external
+    storage (file, Redis, database) keyed by a session ID that the browser sends
+    back in a cookie, which lets the server recognise the same user again.
+WHY THIS IS CORRECT:
+    It links two separate facts - stateless HTTP and shared-nothing PHP - which
+    is exactly the reasoning the question is testing.
+
+
+============================= ADVANCED =============================
+
+Q8. Explain the difference between MINIT, RINIT, RSHUTDOWN and MSHUTDOWN.
+ANSWER:
+    MINIT runs once when the PHP process starts: extensions are loaded and
+    php.ini is read. RINIT runs at the start of each request: superglobals and a
+    fresh symbol table are prepared. RSHUTDOWN runs at the end of each request:
+    destructors and shutdown callbacks run, session data is written and request
+    memory is freed. MSHUTDOWN runs once when the process terminates and unloads
+    extensions.
+WHY THIS IS CORRECT:
+    It correctly separates the per-process stages (MINIT/MSHUTDOWN) from the
+    per-request stages (RINIT/RSHUTDOWN). Mixing them up is the usual mistake.
+
+Q9. What does OPcache actually cache, and why does it help so much?
+ANSWER:
+    It caches the compiled opcodes of each PHP file in shared memory. Without
+    it, every request re-reads, re-parses and re-compiles every file it
+    includes. A framework request can include hundreds of files, so skipping
+    compilation removes a large fixed cost from every request. It does not cache
+    the RESULT of your code - only the compiled instructions.
+WHY THIS IS CORRECT:
+    The key distinction is opcodes vs output. Many candidates wrongly say
+    OPcache caches page output.
+
+Q10. If PHP destroys everything each request, how can Swoole or RoadRunner make
+     it faster, and what breaks?
+ANSWER:
+     They keep a PHP worker process alive and feed it many requests, so the
+     framework bootstrap happens once instead of per request. What breaks is
+     every assumption that came from shared-nothing: static properties, global
+     state and singletons now leak data between requests (and potentially
+     between users), memory leaks accumulate, and superglobals must be reset
+     per request. Code has to be genuinely stateless.
+WHY THIS IS CORRECT:
+     It states both the benefit (skip bootstrap) and the concrete risk (state
+     leaking across users), which is a real security concern, not just a
+     performance detail.
+
+
+========================== SCENARIO BASED ==========================
+
+Q11. A developer stores a value in a global variable and complains that it is
+     empty on the next page. What do you tell them?
+ANSWER:
+     Request memory is destroyed at the end of every request, so globals cannot
+     survive. Choose storage based on the data: $_SESSION for per-user data such
+     as login state, a database for permanent data, Redis/Memcached for shared
+     cache, a cookie for small non-sensitive client-side data, or a hidden form
+     field / query string for data passed between two specific pages.
+WHY THIS IS CORRECT:
+     It diagnoses the cause and then picks storage by requirement instead of
+     naming only one option.
+
+Q12. You deploy new code, but the site still runs the old version. Nothing in
+     the code is cached. What do you check?
+ANSWER:
+     OPcache. If opcache.validate_timestamps is Off (a common production
+     setting), PHP will not notice that files changed and will keep serving the
+     cached opcodes. The fix is to reload PHP-FPM or call opcache_reset() as
+     part of the deployment. Also verify you deployed to the correct path and
+     that a reverse proxy or CDN is not caching the response.
+WHY THIS IS CORRECT:
+     It names the specific directive responsible and gives the standard
+     deployment fix, then checks the next most likely causes.
+
+Q13. A report page times out after 30 seconds in the browser, but the same
+     script finishes fine from the command line. Why, and what is the proper
+     fix?
+ANSWER:
+     Why: the web SAPI applies max_execution_time (typically 30s) while CLI
+     defaults to unlimited. The wrong fix is raising the limit or calling
+     set_time_limit(0) - the user still waits, the browser may time out, and an
+     FPM worker is blocked the whole time. The proper fix is to move the work
+     out of the request: the web request queues a job, a CLI worker generates
+     the report, and the user is notified or polls for the result.
+WHY THIS IS CORRECT:
+     It explains the mechanism and rejects the tempting quick fix for a concrete
+     architectural reason.
+
+
+====================== REAL-TIME PROJECT QUESTIONS ======================
+
+Q14. Traffic is going to increase 10x next month. How does PHP's architecture
+     help you, and what must you fix first?
+ANSWER:
+     Shared-nothing makes horizontal scaling straightforward: add more PHP-FPM
+     servers behind a load balancer, since any server can serve any request.
+     Before that you must remove anything server-local: move sessions from local
+     files to Redis or the database, move uploaded files to shared/object
+     storage, and make sure no code depends on a local cache or temp file. Then
+     confirm OPcache is on, add a cache layer for hot queries, and check that
+     the database (usually the real bottleneck) can take the load with read
+     replicas or better indexes.
+WHY THIS IS CORRECT:
+     It uses the architecture as the answer, then lists the exact things that
+     silently break the "any server can serve any request" assumption.
+
+Q15. How would you debug a PHP page that suddenly became slow in production?
+ANSWER:
+     Work down the request path. Confirm OPcache is enabled and hitting. Check
+     the database first (slow query log, EXPLAIN, missing index, N+1 queries) -
+     it is the most common cause. Check external API calls, which block the
+     whole request while waiting. Check PHP-FPM status for saturated workers.
+     Then profile the script itself with Xdebug or Blackfire to find the actual
+     hot path rather than guessing.
+WHY THIS IS CORRECT:
+     It follows the lifecycle in order and prioritises by real-world frequency
+     (database and network before PHP code) instead of guessing.
+
+
+--------------------------------------------------------------------------------
+8. COMMON MISTAKES
+--------------------------------------------------------------------------------
+
+MISTAKE 1: Expecting variables to persist between requests.
+    WRONG : $cart[] = $product;   // gone on the next page
+    RIGHT : $_SESSION['cart'][] = $product;   // stored externally
+    WHY   : request memory is destroyed at shutdown.
+
+MISTAKE 2: Thinking "static" or a singleton persists on the server.
+    Static lives for one request only. A singleton is recreated every request.
+    Do not use them as a cache between users.
+
+MISTAKE 3: Using set_time_limit(0) to "fix" slow pages.
+    It hides the problem, blocks an FPM worker for minutes, and the browser may
+    still time out. Move long work to a CLI worker/queue.
+
+MISTAKE 4: Assuming CLI and web share configuration.
+    They frequently load different php.ini files. Always verify with
+    php_ini_loaded_file() or "php --ini" before debugging further.
+
+MISTAKE 5 (SECURITY): Leaving display_errors On in production.
+    Error messages leak file paths, database structure and sometimes
+    credentials. In production use display_errors=Off with log_errors=On.
+
+MISTAKE 6 (PERFORMANCE): Running production without OPcache, or leaving Xdebug
+    enabled on a production server. Xdebug can slow execution several times over
+    and must never be enabled in production.
+
+MISTAKE 7: Not reloading PHP-FPM after deployment, then debugging "phantom"
+    old code for hours.
+
+MISTAKE 8: Trying to build a chat server or long-polling endpoint on standard
+    PHP-FPM. Each open connection holds a worker hostage and the pool is
+    exhausted quickly. Use a purpose-built runtime for that.
+
+
+--------------------------------------------------------------------------------
+9. BEST PRACTICES
+--------------------------------------------------------------------------------
+
+ 1. Treat every request as completely independent. Never assume anything is
+    left over from a previous one.
+ 2. Store state deliberately: session (per user), database (permanent),
+    Redis/Memcached (shared cache), cookie (small, non-sensitive, client-side).
+ 3. Keep OPcache enabled in production, and reload PHP-FPM on every deploy.
+ 4. Use PHP-FPM in production, not mod_php.
+ 5. Keep web requests short. Anything longer than a couple of seconds belongs
+    in a queue processed by a CLI worker.
+ 6. Write code that works under both SAPIs: guard header() and echo output with
+    a PHP_SAPI check in shared code.
+ 7. Development settings: display_errors=On, error_reporting=E_ALL.
+    Production settings: display_errors=Off, log_errors=On, real log monitoring.
+ 8. Use register_shutdown_function() to catch fatal errors and log them.
+ 9. Do not fight the model. If you truly need persistent connections or shared
+    memory state, use the right tool instead of forcing PHP-FPM to do it.
+10. Know your own environment: run "php --ini" and "php -m" once so you know
+    which ini file and which extensions are actually active.
+
+
+--------------------------------------------------------------------------------
+10. IMPORTANT NOTES (QUICK REVISION)
+--------------------------------------------------------------------------------
+
+KEY POINTS TO REMEMBER
+    - PHP compiles source into OPCODES, then the Zend Engine executes them.
+    - Lifecycle: MINIT -> RINIT -> compile -> execute -> RSHUTDOWN -> MSHUTDOWN.
+      MINIT/MSHUTDOWN = once per process. RINIT/RSHUTDOWN = every request.
+    - SHARED-NOTHING: no memory is shared between requests. Everything dies.
+    - Persistence requires EXTERNAL storage: session, database, Redis, cookie.
+    - OPcache caches OPCODES, not output.
+    - static inside a function = per request, not per server.
+
+IMPORTANT SYNTAX / FUNCTIONS
+    PHP_SAPI                     current SAPI name ('cli', 'fpm-fcgi', ...)
+    php_sapi_name()              same value as a function call
+    PHP_VERSION / PHP_EOL        version string / OS-correct line ending
+    phpinfo()                    full configuration report (never in production)
+    php_ini_loaded_file()        path of the php.ini actually in use
+    ini_get('memory_limit')      read a directive at runtime
+    ini_set('display_errors','1')set a directive at runtime (not all are settable)
+    memory_get_usage(true)       current memory used by this request
+    memory_get_peak_usage(true)  peak memory used by this request
+    register_shutdown_function() run code at request shutdown, even after fatals
+    opcache_get_status(false)    OPcache statistics, false if disabled
+    opcache_reset()              clear the opcode cache (used during deploys)
+
+USEFUL COMMANDS
+    php -v                       PHP version
+    php --ini                    which php.ini files are loaded
+    php -m                       list loaded extensions
+    php -i | findstr opcache     inspect OPcache settings on Windows
+    php -r "echo PHP_SAPI;"      run a one-liner
+    php -S localhost:8000        built-in dev server (never for production)
+
+COMMON INTERVIEW POINTS
+    - "What happens when you request a PHP page?" -> the 5-stage answer.
+    - "Why doesn't my variable persist?" -> shared-nothing.
+    - "mod_php vs PHP-FPM" -> embedded interpreter vs separate process pool.
+    - "Is PHP interpreted?" -> compiled to opcodes, then executed by the VM.
+    - "Why is PHP easy to scale horizontally?" -> no shared in-memory state.
+
+QUICK REVISION CHECKLIST
+    [ ] I can describe the request lifecycle in 5 stages without notes.
+    [ ] I can explain shared-nothing and name 3 consequences of it.
+    [ ] I know the difference between MINIT and RINIT.
+    [ ] I can name 3 differences between CLI and web SAPI.
+    [ ] I can explain what OPcache caches and what it does not.
+    [ ] I can explain why static does not persist between requests.
+    [ ] I know where to store data that must survive a request.
+
+
+--------------------------------------------------------------------------------
+11. PRACTICAL EXERCISES
+--------------------------------------------------------------------------------
+
+EXERCISE 1 (BASIC)
+    Create environment_report.php that prints: PHP version, SAPI name, loaded
+    php.ini path, memory_limit, max_execution_time, and whether OPcache is on.
+    Run it twice - once in the browser (http://localhost/...) and once with
+    "php environment_report.php" - and write down every value that differs.
+    GOAL: see with your own eyes that CLI and web are two different worlds.
+
+EXERCISE 2 (INTERMEDIATE)
+    Build visit_counter.php that tracks three counters on the same page:
+      (a) a plain variable,
+      (b) a static variable inside a function called 3 times,
+      (c) a $_SESSION counter,
+      (d) a counter stored in a text file using file_get_contents/file_put_contents.
+    Refresh 5 times and record which counters increase and which do not.
+    Then answer in your own words: why do (c) and (d) survive but (a) and (b)
+    do not?
+    GOAL: prove shared-nothing yourself and understand external storage.
+
+EXERCISE 3 (REAL-TIME PROJECT STYLE)
+    Write a small request profiler that you could drop into a real project:
+      - At the very top of the script, record the start time with hrtime(true)
+        and the starting memory with memory_get_usage(true).
+      - Register a shutdown function that calculates the total execution time in
+        milliseconds and the peak memory in MB.
+      - If the request is CLI, print the result. If it is a web request, append
+        it as an HTML comment so it does not break the page layout.
+      - Log every request slower than 200 ms to a file slow_requests.log with
+        the URI, duration and timestamp.
+    Then create a page that sleeps for 300 ms and confirm it appears in the log.
+    GOAL: this is a genuine production-style tool, and it forces you to use the
+    shutdown stage correctly.
+
+================================================================================
+END OF TOPIC 01
+NEXT: 02-php-syntax-basics.txt
+================================================================================

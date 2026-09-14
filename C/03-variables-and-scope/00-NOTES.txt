@@ -1,0 +1,979 @@
+================================================================================
+TOPIC 03 : VARIABLES, SCOPE & STATIC VARIABLES
+================================================================================
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+WHAT IS THIS TOPIC?
+A variable is a named box in memory that holds a value. Scope is the set of
+rules that decides WHERE in your code a variable can be seen. This topic covers
+how to declare variables, the naming rules, PHP's four scopes, variable
+variables, and the static keyword inside functions.
+
+WHY IS IT IMPORTANT?
+- Scope is the reason "my variable is empty inside the function" happens. It is
+  one of the top three beginner bugs.
+- PHP has NO block scope, unlike JavaScript, Java or C#. Interviewers love this
+  question because candidates coming from other languages get it wrong.
+- global and $GLOBALS appear in every legacy PHP codebase you will ever
+  maintain, and knowing why they are bad is a mid-level interview question.
+
+
+--------------------------------------------------------------------------------
+2. COMPLETE EXPLANATION (BASIC -> ADVANCED)
+--------------------------------------------------------------------------------
+
+2.1 DECLARING VARIABLES
+-----------------------
+PHP variables start with $ and are created the moment you assign to them. There
+is no declaration keyword (no var, let, int).
+
+    $name = 'Ravi';        // string
+    $age  = 25;            // int
+    $name = 30;            // allowed: PHP is dynamically typed
+
+DYNAMICALLY TYPED means the TYPE belongs to the VALUE, not to the variable. The
+same variable can hold different types over time. (This is different from
+"weakly typed", which is about automatic conversion - see file 07.)
+
+NAMING RULES (exact):
+    - Must start with $ followed by a letter or underscore.
+    - After that: letters, numbers, underscores.
+    - Cannot start with a number:      $1name   is invalid.
+    - Case sensitive:                  $name and $Name are different.
+    - $this is reserved and cannot be used as a normal variable name.
+
+VALID  : $userName, $_temp, $user2, $UserName
+INVALID: $2user, $user-name, $user name, $user.name
+
+NAMING CONVENTION USED IN REAL PROJECTS:
+    $camelCase        for variables and methods       (PSR standard)
+    $snake_case       common in older/legacy PHP code
+    CONSTANT_CASE     for constants
+    PascalCase        for class names
+Pick one and stay consistent within a project.
+
+
+2.2 CHECKING AND REMOVING VARIABLES
+-----------------------------------
+    isset($x)      true if $x exists AND is not null
+    empty($x)      true if $x does not exist OR is falsy ('', 0, '0', [], null)
+    is_null($x)    true only if $x exists and is null (warns if undefined)
+    unset($x)      destroys the variable
+    $x ?? 'def'    value of $x if set and not null, else 'def' (no warning)
+
+Full detail is in file 09. Here just remember: use isset() or ?? to read
+possibly-missing variables, never a bare $x.
+
+
+2.3 THE FOUR SCOPES IN PHP
+--------------------------
+    +---------------+----------------------------------------------------------+
+    | Scope         | Meaning                                                  |
+    +---------------+----------------------------------------------------------+
+    | Global        | Declared outside any function. Visible in the main script |
+    |               | body, but NOT automatically inside functions.            |
+    +---------------+----------------------------------------------------------+
+    | Local         | Declared inside a function. Created when the function is  |
+    | (function)    | called, destroyed when it returns.                        |
+    +---------------+----------------------------------------------------------+
+    | Static        | A local variable marked static. Keeps its value between   |
+    |               | CALLS of that function, within the same request.          |
+    +---------------+----------------------------------------------------------+
+    | Parameter     | Function arguments. They are local variables that are     |
+    |               | pre-filled with the caller's values.                      |
+    +---------------+----------------------------------------------------------+
+
+THE MOST IMPORTANT RULE:
+A function in PHP cannot see global variables. This is the opposite of most
+languages, and it is deliberate - it forces you to pass what you need.
+
+    $siteName = 'MyShop';
+
+    function showHeader(): void
+    {
+        echo $siteName;     // Warning: Undefined variable $siteName
+    }
+
+The correct fix is to pass it in:
+
+    function showHeader(string $siteName): void
+    {
+        echo $siteName;     // works, and the dependency is now visible
+    }
+
+
+2.4 PHP HAS NO BLOCK SCOPE  (IMPORTANT INTERVIEW POINT)
+-------------------------------------------------------
+In JavaScript, Java or C#, a variable created inside { } disappears outside it.
+In PHP it does not. Only FUNCTIONS create a new scope.
+
+    if (true) {
+        $result = 'created inside the if block';
+    }
+    echo $result;      // WORKS in PHP. Would fail with let in JavaScript.
+
+    for ($i = 0; $i < 3; $i++) {
+        $last = $i;
+    }
+    echo $i;           // 3   - the loop variable still exists
+    echo $last;        // 2   - so does the loop body variable
+
+CONSEQUENCES YOU MUST KNOW:
+    - Loop counters leak after the loop. Reusing $i in nested loops without care
+      causes real bugs.
+    - A variable created only inside an if branch may be undefined when that
+      branch did not run. Always initialise before the branch:
+
+          $discount = 0;                 // safe default
+          if ($isMember) {
+              $discount = 10;
+          }
+          echo $discount;                // always defined
+
+    - foreach's value variable also survives the loop, which is the root of the
+      famous reference bug (see file 15).
+
+
+2.5 THE global KEYWORD AND $GLOBALS
+-----------------------------------
+Two ways to reach a global variable from inside a function:
+
+    $counter = 0;
+
+    function incrementWithKeyword(): void
+    {
+        global $counter;        // creates a local REFERENCE to the global
+        $counter++;
+    }
+
+    function incrementWithArray(): void
+    {
+        $GLOBALS['counter']++;  // accesses the global symbol table directly
+    }
+
+DIFFERENCES:
+    - "global $x;" imports a reference once, at that point in the function.
+    - $GLOBALS['x'] reads/writes the live global every time it is used.
+    - $GLOBALS is a real superglobal: available in every scope without importing.
+    - Since PHP 8.1, writing to $GLOBALS as a whole array
+      ($GLOBALS = [...]) is not allowed; individual keys still work.
+
+WHY BOTH ARE CONSIDERED BAD PRACTICE (this is the interview answer):
+    1. HIDDEN DEPENDENCIES. Reading the function signature tells you nothing
+       about what it touches. You must read the whole body.
+    2. UNTESTABLE. A unit test cannot easily set up or isolate global state, and
+       tests start affecting each other.
+    3. UNSAFE TO CHANGE. Any code anywhere can modify the value, so a bug can
+       come from any file in the project.
+    4. NO IDE / STATIC ANALYSIS HELP. Types are unknown, refactoring is unsafe.
+    5. THEY DO NOT EVEN PERSIST between requests (shared-nothing, file 01), so
+       they are not useful as storage either.
+
+WHAT TO DO INSTEAD:
+    - Pass values as parameters (simplest, always correct).
+    - Return values instead of mutating shared state.
+    - Inject dependencies through the constructor (see files 61-62).
+    - Use a proper config object or container instead of global $config.
+
+
+2.6 STATIC VARIABLES INSIDE FUNCTIONS
+-------------------------------------
+    function generateTicketNumber(): int
+    {
+        static $lastNumber = 0;    // initialised only on the FIRST call
+        $lastNumber++;
+        return $lastNumber;
+    }
+
+    echo generateTicketNumber();   // 1
+    echo generateTicketNumber();   // 2
+    echo generateTicketNumber();   // 3
+
+RULES:
+    - The initialiser (= 0) runs only once, on the first call.
+    - The value survives between calls but is destroyed at request end.
+    - It is per-function, not per-object: a static variable in a method is
+      shared by ALL instances of the class.
+    - Since PHP 8.1, a static variable in a method is also inherited by child
+      classes as the same variable.
+
+MAIN LEGITIMATE USES:
+    - A tiny per-request memoisation cache (avoid recomputing in one request).
+    - Counting calls, generating sequence numbers within a request.
+    - A lazily created heavy object used many times in one request.
+
+DANGER: static makes a function non-deterministic - the same input can give
+different output. That makes tests order-dependent. Use it sparingly, and never
+as a substitute for real storage.
+
+
+2.7 VARIABLE VARIABLES ($$name)
+-------------------------------
+A variable variable uses the VALUE of one variable as the NAME of another.
+
+    $field = 'email';
+    $$field = 'ravi@example.com';   // creates $email
+    echo $email;                    // ravi@example.com
+    echo ${$field};                 // same thing, clearer syntax
+
+You can also do it with properties:
+
+    $prop = 'title';
+    echo $product->$prop;           // same as $product->title
+
+WHEN IT IS USED: dynamic form processing in older code, simple templating,
+metaprogramming.
+
+WHY MODERN CODE AVOIDS IT:
+    - Unreadable and impossible for an IDE or PHPStan to analyse.
+    - A SECURITY RISK when the name comes from user input: $$_GET['x'] lets an
+      attacker overwrite any variable in scope (the same class of bug as
+      register_globals, removed from PHP long ago for this reason).
+    - An ARRAY does the job better and safely:
+
+          $data = [];
+          $data[$field] = 'ravi@example.com';   // clear, safe, analysable
+
+    Rule: if the name is dynamic, you want an array (or an object), not a
+    variable variable.
+
+
+--------------------------------------------------------------------------------
+3. REAL-TIME EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: THE LEGACY CONFIG GLOBAL
+Almost every old PHP project has this in a function:
+    function getDbConnection() { global $config; ... }
+It works until two parts of the app need different databases, or until someone
+writes a test. Modern projects pass a Config object or use a DI container. When
+an interviewer asks "what would you refactor in this legacy code?", the global
+config is always a correct answer.
+
+EXAMPLE 2: PER-REQUEST CACHE WITH static
+A permission check is called 40 times while rendering a dashboard, and each call
+hits the database:
+    function userPermissions(int $userId): array {
+        static $cache = [];
+        return $cache[$userId] ??= fetchPermissionsFromDb($userId);
+    }
+Now the query runs once per user per request instead of 40 times. This is a real
+optimisation used in production code. Note it lasts one request only.
+
+EXAMPLE 3: THE UNDEFINED VARIABLE IN A TEMPLATE
+A view file echoes $successMessage, which is only set when a form was submitted.
+On the first page load PHP emits "Warning: Undefined variable" and, if
+display_errors is on, prints it inside the HTML. The professional fix is
+<?= $successMessage ?? '' ?> or initialising all view variables in the
+controller.
+
+EXAMPLE 4: LOOP COUNTER LEAK CAUSING A REAL BUG
+    foreach ($orders as $order) { ... $total = ...; }
+    // ... 30 lines later, in the same file
+    echo "Last total: $total";
+If $orders is empty, $total was never created and the page breaks - but only for
+customers with no orders, so it passes testing and fails in production. This is
+exactly why you initialise variables before loops.
+
+EXAMPLE 5: DYNAMIC FORM FIELDS DONE WRONG AND RIGHT
+Old code: foreach ($_POST as $key => $value) { $$key = $value; }
+This recreates the register_globals vulnerability - a request with
+?isAdmin=1 can overwrite an $isAdmin variable your code later checks.
+Correct code: validate against a whitelist and keep the data in an array.
+
+
+--------------------------------------------------------------------------------
+4. USE CASES
+--------------------------------------------------------------------------------
+
+WHEN TO USE PARAMETERS (almost always)
+    Any value a function needs should be a parameter. It makes the dependency
+    visible, the function testable, and the code reusable.
+
+WHEN static INSIDE A FUNCTION IS APPROPRIATE
+    - Memoising an expensive pure computation within one request.
+    - Generating sequential ids/counters within one request.
+    - Lazily creating one heavy helper object used repeatedly.
+    NOT appropriate for: storing user data, cross-request state, or anything a
+    test needs to control.
+
+WHEN global IS ACCEPTABLE
+    - Practically never in new code.
+    - Only when patching legacy code that is already built on globals and a
+      refactor is out of scope.
+
+WHEN VARIABLE VARIABLES ARE ACCEPTABLE
+    - Rare metaprogramming, framework internals, or quick throwaway scripts.
+    - NEVER with any value derived from user input.
+    - In application code, use an array instead.
+
+WHEN TO USE unset()
+    - Freeing a large array in a long-running CLI script to reduce peak memory.
+    - Removing an element from an array (see file 18).
+    - Not needed for normal request scripts; memory is freed at shutdown anyway.
+
+
+--------------------------------------------------------------------------------
+5. CODE EXAMPLES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CODE 1 : ALL FOUR SCOPES IN ONE SCRIPT
+File: scope_demo.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    $appName = 'InvoiceApp';        // GLOBAL scope
+
+    function withoutAccess(): void
+    {
+        // $appName is NOT visible here.
+        echo 'Inside function: ' . ($appName ?? '(not visible)') . PHP_EOL;
+    }
+
+    function withParameter(string $appName): void   // PARAMETER scope
+    {
+        echo 'Passed in      : ' . $appName . PHP_EOL;
+    }
+
+    function withGlobalKeyword(): void
+    {
+        global $appName;            // imports a reference to the global
+        echo 'Via global     : ' . $appName . PHP_EOL;
+        $appName = 'CHANGED';       // this modifies the real global
+    }
+
+    function withStatic(): int      // STATIC scope
+    {
+        static $calls = 0;
+        $calls++;
+        return $calls;
+    }
+
+    withoutAccess();                 // (not visible)
+    withParameter($appName);         // InvoiceApp
+    withGlobalKeyword();             // InvoiceApp
+    echo 'Global now     : ' . $appName . PHP_EOL;   // CHANGED
+
+    echo 'Static calls   : ' . withStatic() . withStatic() . withStatic() . PHP_EOL;
+
+    EXPECTED OUTPUT:
+        Inside function: (not visible)
+        Passed in      : InvoiceApp
+        Via global     : InvoiceApp
+        Global now     : CHANGED
+        Static calls   : 123
+
+
+--------------------------------------------------------------------------------
+CODE 2 : NO BLOCK SCOPE - AND THE BUG IT CAUSES
+File: block_scope.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // --- Proof that blocks do not create scope ---
+    if (true) {
+        $insideIf = 'I escaped the if block';
+    }
+    for ($i = 0; $i < 3; $i++) {
+        $lastValue = $i * 10;
+    }
+
+    echo $insideIf  . PHP_EOL;   // works
+    echo $i         . PHP_EOL;   // 3  (loop variable survives)
+    echo $lastValue . PHP_EOL;   // 20 (body variable survives)
+
+
+    // --- THE BUG this causes ---
+    function calculateInvoiceTotalBuggy(array $items): float
+    {
+        foreach ($items as $item) {
+            $total = ($total ?? 0) + $item['price'];
+        }
+        return $total;          // TypeError if $items is empty!
+    }
+
+    // --- THE FIX: always initialise before the loop ---
+    function calculateInvoiceTotal(array $items): float
+    {
+        $total = 0.0;                       // safe default, correct type
+        foreach ($items as $item) {
+            $total += $item['price'];
+        }
+        return $total;
+    }
+
+    $items = [['price' => 100.50], ['price' => 49.50]];
+
+    echo calculateInvoiceTotal($items) . PHP_EOL;   // 150
+    echo calculateInvoiceTotal([])     . PHP_EOL;   // 0
+    // calculateInvoiceTotalBuggy([]) -> TypeError: must return float, null given
+
+    EXPECTED OUTPUT:
+        I escaped the if block
+        3
+        20
+        150
+        0
+
+
+--------------------------------------------------------------------------------
+CODE 3 : STATIC AS A PER-REQUEST CACHE (REALISTIC USE)
+File: static_cache.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // Pretend this is an expensive database call.
+    function fetchUserFromDatabase(int $userId): array
+    {
+        echo "  [DB] SELECT * FROM users WHERE id = {$userId}" . PHP_EOL;
+        usleep(50_000);                       // simulate 50 ms of latency
+        return ['id' => $userId, 'name' => 'User ' . $userId];
+    }
+
+    function getUser(int $userId): array
+    {
+        static $cache = [];                   // survives calls in THIS request
+
+        // ??= assigns only if the key is missing or null (PHP 7.4+)
+        $cache[$userId] ??= fetchUserFromDatabase($userId);
+
+        return $cache[$userId];
+    }
+
+    echo "First call for user 5:"  . PHP_EOL;  getUser(5);
+    echo "Second call for user 5:" . PHP_EOL;  getUser(5);
+    echo "First call for user 9:"  . PHP_EOL;  getUser(9);
+    echo "Third call for user 5:"  . PHP_EOL;  getUser(5);
+
+    EXPECTED OUTPUT:
+        First call for user 5:
+          [DB] SELECT * FROM users WHERE id = 5
+        Second call for user 5:
+        First call for user 9:
+          [DB] SELECT * FROM users WHERE id = 9
+        Third call for user 5:
+
+    Note: the database line appears only once per user. On the NEXT request the
+    cache is empty again, because static is per request.
+
+
+--------------------------------------------------------------------------------
+CODE 4 : REFACTORING AWAY FROM global (BEFORE AND AFTER)
+File: refactor_global.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // ================= BEFORE: legacy style =================
+    $config = ['tax_rate' => 0.18, 'currency' => 'INR'];
+
+    function priceWithTaxLegacy(float $price): float
+    {
+        global $config;                       // hidden dependency
+        return $price * (1 + $config['tax_rate']);
+    }
+
+    // Problems: signature hides the dependency, cannot test with a different
+    // tax rate, any file can change $config, IDE knows nothing about it.
+
+
+    // ================= AFTER: explicit dependency =================
+    final class TaxCalculator
+    {
+        public function __construct(
+            private readonly float $taxRate      // injected, immutable
+        ) {
+        }
+
+        public function priceWithTax(float $price): float
+        {
+            return round($price * (1 + $this->taxRate), 2);
+        }
+    }
+
+    $calculator = new TaxCalculator(0.18);
+    echo $calculator->priceWithTax(1000.00) . PHP_EOL;   // 1180
+
+    // Testing a different rate is now trivial - no global to reset:
+    $gstFree = new TaxCalculator(0.0);
+    echo $gstFree->priceWithTax(1000.00) . PHP_EOL;      // 1000
+
+    EXPECTED OUTPUT:
+        1180
+        1000
+
+
+--------------------------------------------------------------------------------
+6. CODE EXPLANATION
+--------------------------------------------------------------------------------
+
+EXPLANATION OF CODE 1 (scope_demo.php)
+--------------------------------------
+    $appName = 'InvoiceApp';
+        Created in global scope - the main script body's symbol table.
+
+    ($appName ?? '(not visible)')
+        Inside the function, $appName does not exist. The ?? operator returns
+        the fallback WITHOUT emitting an "undefined variable" warning, which is
+        why the demo prints cleanly. Without ??, PHP 8 would warn.
+
+    function withParameter(string $appName)
+        The parameter creates a NEW local variable that happens to share the
+        name. Changing it inside would not affect the global - parameters are
+        passed by value (see file 30).
+
+    global $appName;
+        Creates a local variable that is a REFERENCE to the global one. Because
+        it is a reference, the later assignment $appName = 'CHANGED' modifies
+        the global itself - which is exactly the "action at a distance" problem
+        that makes globals dangerous.
+
+    static $calls = 0;
+        The initialiser runs on the first call only. On subsequent calls PHP
+        skips it and reuses the stored value.
+
+    echo ... . withStatic() . withStatic() . withStatic()
+        Three calls are concatenated, producing "123". Note that PHP does not
+        guarantee left-to-right evaluation for every construct, but for simple
+        concatenation like this it evaluates in order.
+
+
+EXPLANATION OF CODE 2 (block_scope.php)
+---------------------------------------
+    $insideIf still exists after the if block
+        Because only functions create scope in PHP. The if block shares the
+        surrounding scope. Developers coming from JavaScript's let/const expect
+        this to fail - it does not.
+
+    echo $i outputs 3, not 2
+        The for loop increments $i to 3, then the condition 3 < 3 fails and the
+        loop exits. $i keeps its final value of 3 afterwards.
+
+    $total = ($total ?? 0) + $item['price'];
+        This looks defensive but only fixes the INSIDE of the loop. If the array
+        is empty the loop body never runs, so $total is never created at all and
+        the function returns null - which violates the : float return type and
+        throws a TypeError. The bug appears only for empty input, which is why
+        it survives testing.
+
+    $total = 0.0;  before the loop
+        The correct fix. Note 0.0 not 0, so the variable starts as a float and
+        matches the declared return type exactly.
+
+    $total += $item['price'];
+        += is the compound assignment operator, equivalent to
+        $total = $total + $item['price'].
+
+
+EXPLANATION OF CODE 3 (static_cache.php)
+----------------------------------------
+    usleep(50_000)
+        Sleeps 50,000 microseconds = 50 ms, simulating database latency. The
+        underscore in 50_000 is a numeric literal separator (PHP 7.4+), purely
+        for readability - PHP ignores it.
+
+    static $cache = [];
+        One array shared by every call to getUser in this request. It is keyed
+        by user id so different users do not collide.
+
+    $cache[$userId] ??= fetchUserFromDatabase($userId);
+        The null coalescing ASSIGNMENT operator (PHP 7.4+). It means: if
+        $cache[$userId] is not set or is null, evaluate the right side and
+        assign it; otherwise do nothing. Crucially, the right side is NOT
+        evaluated when the key already exists - that is what prevents the second
+        database call. Writing $cache[$userId] = $cache[$userId] ?? fetch(...)
+        would call fetch() every time and defeat the cache.
+
+    WHY THIS IS SAFE HERE
+        The cached data is read-only for the duration of the request and keyed
+        by id. It becomes unsafe if the data can change during the request, or
+        under a persistent runtime like Swoole where the "request" never ends -
+        there, the cache would leak one user's data into another user's request.
+
+
+EXPLANATION OF CODE 4 (refactor_global.php)
+-------------------------------------------
+    global $config; inside priceWithTaxLegacy
+        The function signature says it needs only a price, but it actually needs
+        a fully populated $config global. This is a hidden dependency: you
+        cannot know it without reading the body, and a unit test must create a
+        global before calling the function.
+
+    private readonly float $taxRate
+        Constructor property promotion plus readonly (PHP 8.1). The property is
+        declared, typed, assigned and locked in one line. readonly means it can
+        never be changed after construction, so the calculator cannot be
+        mutated by accident.
+
+    round($price * (1 + $this->taxRate), 2)
+        Rounds to 2 decimals so money output is predictable. Real money code
+        should use integers or bcmath (see file 06), but rounding at the
+        boundary is the minimum.
+
+    new TaxCalculator(0.18) and new TaxCalculator(0.0)
+        Two independent instances with different behaviour existing at the same
+        time. That is impossible with a global, and it is exactly what tests
+        need.
+
+
+--------------------------------------------------------------------------------
+7. INTERVIEW QUESTIONS
+--------------------------------------------------------------------------------
+
+============================= BEGINNER =============================
+
+Q1. What are the rules for naming a PHP variable?
+ANSWER:
+    It must start with $ followed by a letter or underscore, then may contain
+    letters, numbers and underscores. It cannot start with a number and cannot
+    contain spaces or hyphens. Variable names are case sensitive, so $name and
+    $Name are different. $this is reserved.
+WHY THIS IS CORRECT:
+    It is the complete rule including the case-sensitivity point, which is what
+    the follow-up question usually targets.
+
+Q2. What are the types of variable scope in PHP?
+ANSWER:
+    Global (outside functions), local (inside a function), static (a local
+    variable that keeps its value between calls of the same function), and
+    parameter scope (arguments, which behave as pre-filled local variables).
+WHY THIS IS CORRECT:
+    It lists all four and explains what makes static different from a plain
+    local.
+
+Q3. Can a function access a global variable directly?
+ANSWER:
+    No. PHP functions have their own scope and cannot see global variables
+    automatically. You must pass the value as a parameter (recommended), import
+    it with the global keyword, or read it from $GLOBALS.
+WHY THIS IS CORRECT:
+    It answers no, then gives all three mechanisms with the preferred one named.
+
+
+=========================== INTERMEDIATE ===========================
+
+Q4. Does PHP have block scope?
+ANSWER:
+    No. Only functions (and methods and closures) create a new scope. A variable
+    created inside an if block, for loop or while loop is still available after
+    that block ends. Loop counters also survive the loop. Because of this you
+    should always initialise a variable before a conditional block, otherwise it
+    may be undefined when the block does not execute.
+WHY THIS IS CORRECT:
+    It states the rule, contrasts it with expectation, and gives the practical
+    consequence rather than stopping at "no".
+
+Q5. What is the difference between "global $x" and $GLOBALS['x']?
+ANSWER:
+    "global $x" creates a local variable that references the global, imported
+    once at that point in the function. $GLOBALS['x'] accesses the global symbol
+    table directly every time, and is available in any scope without importing.
+    Functionally they are close; $GLOBALS is more explicit at the call site. From
+    PHP 8.1 you can no longer replace the whole $GLOBALS array at once.
+WHY THIS IS CORRECT:
+    It gives the mechanical difference (reference import vs direct access) plus
+    the 8.1 change.
+
+Q6. Why are global variables considered bad practice?
+ANSWER:
+    They create hidden dependencies that are invisible in the function
+    signature, they make unit testing hard because state must be set up and
+    reset, any code anywhere can modify them so bugs are hard to trace, and
+    static analysis and IDEs cannot reason about them. The alternatives are
+    parameters, return values and dependency injection.
+WHY THIS IS CORRECT:
+    It lists concrete engineering costs and then the replacement, which is what
+    a senior interviewer is listening for.
+
+Q7. What does the static keyword do inside a function?
+ANSWER:
+    It makes the local variable keep its value between calls of that function
+    within the same request. The initialiser runs only on the first call. It
+    does NOT persist between requests, and in a method it is shared by all
+    instances of the class.
+WHY THIS IS CORRECT:
+    It includes both limits - per request and shared across instances - which is
+    where candidates usually go wrong.
+
+
+============================= ADVANCED =============================
+
+Q8. Why does a static variable not survive to the next request, and where would
+    you store data that must?
+ANSWER:
+    Static variables live in the request's memory, which PHP destroys at request
+    shutdown under the shared-nothing model. To survive a request you need
+    external storage: $_SESSION for per-user state, a database for permanent
+    data, Redis or Memcached for shared cache, APCu for a single-server local
+    cache, or a cookie for small client-side values.
+WHY THIS IS CORRECT:
+    It links the behaviour to the architecture from file 01 and then answers the
+    practical half of the question.
+
+Q9. What are variable variables and why are they dangerous?
+ANSWER:
+    A variable variable uses the value of one variable as the name of another,
+    written $$name or ${$name}. They are dangerous because they are unreadable
+    and invisible to static analysis, and because building them from user input
+    lets an attacker overwrite arbitrary variables in scope - the same class of
+    vulnerability as the old register_globals feature. Use an array when names
+    are dynamic.
+WHY THIS IS CORRECT:
+    It defines the feature and names the specific security problem plus the safe
+    alternative.
+
+Q10. A static cache inside a function works perfectly on PHP-FPM. What happens
+     under Swoole or RoadRunner?
+ANSWER:
+     Under a persistent runtime the worker process handles many requests without
+     dying, so the static variable is never cleared. Cached data from one user's
+     request would be served to the next user - a correctness bug and a serious
+     data-leak vulnerability. Under those runtimes caches must be explicitly
+     scoped to the request and cleared between requests, or stored in a
+     request-scoped container.
+WHY THIS IS CORRECT:
+     It shows you understand that "static is safe" is a consequence of the
+     runtime model, not a property of the language.
+
+
+========================== SCENARIO BASED ==========================
+
+Q11. A colleague reports "Warning: Undefined variable $total" that appears only
+     for some users. How do you diagnose and fix it?
+ANSWER:
+     It is a variable created only inside a conditional or loop that did not run
+     for those users - typically an empty result set. Because PHP has no block
+     scope the code looks fine when data exists. The fix is to initialise the
+     variable with a correct default before the block, for example $total = 0.0;
+     before the foreach. Suppressing the warning with ?? at the point of use
+     hides the real problem when the value is genuinely required.
+WHY THIS IS CORRECT:
+     It identifies the empty-input path as the cause and fixes the cause instead
+     of the symptom.
+
+Q12. You inherit a legacy project where every function starts with
+     "global $db; global $config;". You cannot rewrite it all. What do you do?
+ANSWER:
+     Stop the bleeding first: write all NEW code with explicit parameters or
+     constructor injection. Then refactor incrementally - wrap the global
+     database handle in a small class or provider, change one module at a time
+     to accept it as a dependency, and add tests as you go. A full rewrite is
+     rarely justified; the practical approach is a boundary where new code is
+     clean and old code is migrated when it is touched.
+WHY THIS IS CORRECT:
+     It gives a realistic incremental strategy rather than an unrealistic
+     "rewrite everything", which is what an interviewer wants to hear about
+     legacy work.
+
+Q13. In a loop you call a function that returns the wrong data after the first
+     iteration. What would you suspect?
+ANSWER:
+     A static variable inside that function caching the first result and
+     returning it for every later call, or a stale variable left over from the
+     previous iteration because PHP has no block scope. Check for "static"
+     inside the function, and check whether the loop body reuses a variable
+     without resetting it at the top of each iteration.
+WHY THIS IS CORRECT:
+     Both suspects are direct consequences of the two rules taught in this
+     topic.
+
+
+====================== REAL-TIME PROJECT QUESTIONS ======================
+
+Q14. How do you decide between a static cache, a session, and Redis in a real
+     project?
+ANSWER:
+     Match the lifetime and the sharing requirement. A static variable lasts one
+     request and is not shared - use it to avoid repeating identical work within
+     a single request. A session lasts across requests for ONE user - use it for
+     login state and cart data. Redis lasts across requests AND across servers -
+     use it for cache shared by all users, rate limiting, and sessions in a
+     multi-server setup. Choosing a static variable for anything cross-request
+     is always wrong.
+WHY THIS IS CORRECT:
+     It decides on two clear axes (lifetime, sharing) instead of listing
+     technologies.
+
+Q15. What is your rule about variable initialisation in production code?
+ANSWER:
+     Initialise every variable before the branch or loop that might fill it,
+     with a value of the correct type - 0.0 for a float total, [] for a
+     collection, null for an optional object. In templates, use ?? '' for
+     optional display values. Enable error_reporting=E_ALL in development so
+     undefined-variable warnings surface immediately, and run PHPStan, which
+     detects possibly-undefined variables statically before the code ever runs.
+WHY THIS IS CORRECT:
+     It gives a concrete rule plus the tooling that enforces it, which is how
+     real teams prevent this class of bug.
+
+
+--------------------------------------------------------------------------------
+8. COMMON MISTAKES
+--------------------------------------------------------------------------------
+
+MISTAKE 1: Expecting a function to see global variables.
+    function f() { echo $config['x']; }   // Undefined variable $config
+    Fix: pass it in as a parameter.
+
+MISTAKE 2: Assuming block scope exists.
+    Variables from if/for/while blocks leak. Initialise before the block.
+
+MISTAKE 3: Using a variable that is only assigned inside a loop that may not
+    run. Empty input then produces null and a TypeError or a wrong total.
+
+MISTAKE 4: Believing static persists between requests or between users.
+    It does not on PHP-FPM. It DOES leak between users on Swoole/RoadRunner,
+    which is worse.
+
+MISTAKE 5: Using global to "share" the database connection everywhere.
+    Fix: inject the connection, or pass it to the class constructor.
+
+MISTAKE 6 (SECURITY): Variable variables from user input.
+    foreach ($_POST as $k => $v) { $$k = $v; }
+    An attacker can overwrite $isAdmin, $userId or any other variable in scope.
+    Fix: whitelist expected keys and keep values in an array.
+
+MISTAKE 7: Reusing $i or $key in nested loops. The inner loop overwrites the
+    outer counter because there is no block scope. Use distinct names.
+
+MISTAKE 8: Confusing an assignment with a comparison inside a condition.
+    if ($status = 'active')   assigns and is always true.
+    if ($status === 'active') compares. See file 08.
+
+MISTAKE 9: Relying on unset() to free memory in a normal web request. All memory
+    is released at request end anyway; it only matters in long CLI scripts.
+
+MISTAKE 10: Naming variables $a, $x, $temp2 in real code. Interviewers reviewing
+    your test submission notice this immediately. Use $orderTotal, $customer.
+
+
+--------------------------------------------------------------------------------
+9. BEST PRACTICES
+--------------------------------------------------------------------------------
+
+ 1. Pass data as parameters. Treat global and $GLOBALS as forbidden in new code.
+ 2. Initialise every variable before the block that may or may not fill it, with
+    the correct type as the default.
+ 3. Use descriptive camelCase names: $orderTotal, not $ot or $x.
+ 4. Use ?? or isset() when reading data that may legitimately be missing
+    (superglobals, API responses, optional view variables).
+ 5. Keep static variables rare, small and clearly commented as per-request
+    caches. Never store user-specific state in them if the code may ever run on
+    a persistent runtime.
+ 6. Prefer arrays or objects over variable variables, always.
+ 7. Keep functions small enough that every variable in them is visible at once.
+    If you need globals, the function is doing too much.
+ 8. Turn on error_reporting(E_ALL) in development so undefined variables are
+    caught immediately, and run PHPStan to catch them before runtime.
+ 9. Use readonly properties and constructor injection to make dependencies
+    explicit and immutable.
+10. Never build a variable name from user input.
+
+
+--------------------------------------------------------------------------------
+10. IMPORTANT NOTES (QUICK REVISION)
+--------------------------------------------------------------------------------
+
+KEY POINTS TO REMEMBER
+    - Variables start with $, are created on assignment, and are case sensitive.
+    - PHP is dynamically typed: the type belongs to the value, not the variable.
+    - FOUR SCOPES: global, local, static, parameter.
+    - Functions CANNOT see globals automatically. This is deliberate.
+    - PHP HAS NO BLOCK SCOPE. Only functions create scope.
+    - static in a function = per request, shared across all instances.
+    - global / $GLOBALS = hidden dependencies = hard to test. Avoid.
+    - $$name = variable variable = avoid, use an array instead.
+
+IMPORTANT SYNTAX
+    $name = 'value';                 create/assign
+    global $config;                  import a global into a function
+    $GLOBALS['config']               direct access to the global table
+    static $cache = [];              per-request memory inside a function
+    $cache[$k] ??= expensive();      assign only if missing (7.4+)
+    unset($x);                       destroy a variable
+    $$field  /  ${$field}            variable variable (avoid)
+    $obj->$prop                      dynamic property access
+
+FREQUENTLY USED FUNCTIONS
+    isset($x)          exists and not null
+    empty($x)          missing or falsy
+    is_null($x)        exists and is null
+    unset($x)          destroy
+    get_defined_vars() array of all variables in the current scope (debugging)
+    compact('a','b')   build an array from variable names
+    extract($array)    create variables from an array (DANGEROUS - avoid)
+
+COMMON INTERVIEW POINTS
+    - "Does PHP have block scope?" -> No, only functions.
+    - "Can a function use a global variable?" -> Not automatically.
+    - "Why avoid globals?" -> hidden dependencies, untestable, unsafe changes.
+    - "What does static do in a function?" -> keeps value between calls, one
+      request only.
+    - "What are variable variables?" -> $$name, avoid, security risk.
+
+QUICK REVISION CHECKLIST
+    [ ] I can name the four scopes and explain each in one sentence.
+    [ ] I can prove PHP has no block scope with a 3-line example.
+    [ ] I can explain global vs $GLOBALS and why both are discouraged.
+    [ ] I can explain the two limits of static (per request, shared per class).
+    [ ] I know why $$name from user input is a security bug.
+    [ ] I always initialise variables before conditional blocks.
+
+
+--------------------------------------------------------------------------------
+11. PRACTICAL EXERCISES
+--------------------------------------------------------------------------------
+
+EXERCISE 1 (BASIC)
+    Write scope_practice.php that:
+      (a) creates a global $siteName,
+      (b) proves a function cannot see it (capture the warning),
+      (c) makes it work three ways: as a parameter, with global, with $GLOBALS,
+      (d) creates a variable inside an if block and echoes it after the block.
+    Write one sentence next to each result explaining what it proves.
+    GOAL: turn the scope rules into something you have observed, not memorised.
+
+EXERCISE 2 (INTERMEDIATE)
+    Write a function generateOrderId(string $prefix): string that returns
+    ORD-0001, ORD-0002, ORD-0003 on successive calls using a static counter.
+    Then:
+      - Call it 5 times and print the results.
+      - Reload the page and observe that numbering restarts at 1.
+      - Write two sentences explaining why it restarts, and describe how you
+        would make the numbering continue correctly across requests
+        (which storage would you use, and what problem would you have to solve
+        if two users hit the page at the same time?).
+    GOAL: understand static's limits and the concurrency issue behind real id
+    generation.
+
+EXERCISE 3 (REAL-TIME PROJECT STYLE)
+    Refactor a legacy-style script into clean code.
+      Step 1 - Write the "before" version: a global $config array with
+      tax_rate, currency and discount_threshold, and three functions that each
+      use "global $config" to calculate tax, apply a discount and format a
+      price.
+      Step 2 - Write the "after" version: a PricingService class that receives
+      the configuration through its constructor using promoted readonly
+      properties, with one public method priceBreakdown(float $amount): array
+      returning subtotal, discount, tax and total.
+      Step 3 - Demonstrate the benefit: create TWO PricingService instances with
+      different tax rates in the same script and print both breakdowns, then
+      explain in a comment why this is impossible with the global version.
+    GOAL: this is the exact refactor interviewers ask about when they show you
+    legacy code, and doing it once makes the answer natural.
+
+================================================================================
+END OF TOPIC 03
+NEXT: 04-references-and-constants.txt
+================================================================================

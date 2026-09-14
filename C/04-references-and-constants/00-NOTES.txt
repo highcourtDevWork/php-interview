@@ -1,0 +1,1052 @@
+================================================================================
+TOPIC 04 : REFERENCES (&), COPY-ON-WRITE & CONSTANTS
+================================================================================
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+WHAT IS THIS TOPIC?
+Two related ideas about how PHP stores values:
+  (a) REFERENCES - what happens when you assign one variable to another, and
+      what the & symbol really does.
+  (b) CONSTANTS - values that are fixed for the whole request, and the two
+      different ways to declare them.
+
+WHY IS IT IMPORTANT?
+- "What is the difference between assigning by value and by reference?" is one
+  of the most common intermediate PHP interview questions.
+- References cause the single most famous bug in PHP (the foreach &$value bug,
+  covered in detail in file 15). You cannot understand that bug without this
+  topic.
+- Copy-on-write explains why passing a 100,000-element array to a function is
+  cheap - a performance question that separates mid from senior candidates.
+- define() vs const is a guaranteed written-test question.
+
+
+--------------------------------------------------------------------------------
+2. COMPLETE EXPLANATION (BASIC -> ADVANCED)
+--------------------------------------------------------------------------------
+
+2.1 ASSIGNMENT BY VALUE (THE DEFAULT)
+-------------------------------------
+By default PHP copies the VALUE:
+
+    $a = 10;
+    $b = $a;        // $b gets a copy
+    $b = 20;
+    echo $a;        // 10  - $a is untouched
+
+The same is true for arrays, which is important because arrays are values in
+PHP, not objects:
+
+    $list1 = [1, 2, 3];
+    $list2 = $list1;      // full copy (conceptually)
+    $list2[] = 4;
+    print_r($list1);      // [1, 2, 3]   - unchanged
+
+
+2.2 ASSIGNMENT BY REFERENCE (&)
+-------------------------------
+Using & makes both names point to the SAME storage:
+
+    $a = 10;
+    $b = &$a;       // $b IS $a, not a copy
+    $b = 20;
+    echo $a;        // 20  - changed through $b
+
+Think of it as two labels on one box, rather than two boxes.
+
+To break the link:
+
+    unset($b);      // removes the label $b; $a still exists with its value
+
+References can be used in four places:
+    1. Assignment:        $b = &$a;
+    2. Function parameter: function f(array &$data) { $data[] = 1; }
+    3. Return value:       function &getRef() { ... }   (rare, avoid)
+    4. foreach:            foreach ($items as &$item) { ... }   (dangerous)
+
+
+2.3 COPY-ON-WRITE (COW) - HOW PHP MAKES COPIES CHEAP
+----------------------------------------------------
+If PHP really duplicated a 100,000-element array on every assignment, it would
+be unusably slow. It does not. PHP uses copy-on-write:
+
+    STEP 1  $a = [1..100000];        one array in memory, refcount = 1
+    STEP 2  $b = $a;                 NO copy is made. Both point to the same
+                                     array, refcount = 2. This is instant.
+    STEP 3  $b[] = 100001;           NOW, because $b is being modified and the
+                                     array is shared, PHP duplicates it first.
+                                     This is the "copy on write".
+
+So the copy is deferred until someone actually writes. If you only READ, no copy
+ever happens.
+
+REFCOUNTING is the mechanism: PHP counts how many variables point to a value.
+    - refcount 1 and you modify it -> modified in place, no copy.
+    - refcount > 1 and you modify it -> separate first, then modify.
+
+PRACTICAL CONSEQUENCES (this is the senior-level answer):
+    - Passing a big array to a function that only READS it is cheap. You do NOT
+      need &$array for performance.
+    - Using &$array "for performance" can actually be SLOWER, because a
+      reference disables copy-on-write optimisations, and it makes the code
+      harder to reason about.
+    - Memory spikes happen when you modify a copy of a large array: for a moment
+      both versions exist. In a memory-tight script, unset() the original if you
+      no longer need it.
+    - OBJECTS are different - see 2.5.
+
+
+2.4 REFERENCES IN FUNCTION PARAMETERS
+-------------------------------------
+    // By value (default) - the caller's variable is safe
+    function addTaxByValue(float $price): float
+    {
+        $price = $price * 1.18;
+        return $price;           // must return, caller keeps original
+    }
+
+    // By reference - the caller's variable is modified
+    function addTaxByReference(float &$price): void
+    {
+        $price = $price * 1.18;  // caller's variable changed directly
+    }
+
+    $amount = 100.0;
+    addTaxByValue($amount);      // $amount is still 100.0 (return ignored)
+    addTaxByReference($amount);  // $amount is now 118.0
+
+WHEN BY-REFERENCE PARAMETERS ARE JUSTIFIED:
+    - You must modify the caller's variable in place, and returning a value is
+      genuinely awkward. Built-in examples: sort($array), array_push($array),
+      preg_match($p, $s, $matches).
+    - Building a large structure incrementally in a memory-critical CLI script.
+
+WHEN THEY ARE NOT:
+    - "For performance" on read-only data. Copy-on-write already handles that.
+    - As a way to return multiple values. Return an array, a DTO or an object
+      instead - it is far clearer:
+          [$user, $errors] = $service->register($data);
+
+
+2.5 OBJECTS ARE DIFFERENT (VERY COMMON INTERVIEW TRAP)
+------------------------------------------------------
+Since PHP 5, an object variable does not hold the object. It holds an OBJECT
+HANDLE (an identifier pointing to the object).
+
+    $user1 = new User('Ravi');
+    $user2 = $user1;             // copies the HANDLE, not the object
+    $user2->name = 'Amit';
+    echo $user1->name;           // 'Amit'  - same object!
+
+This LOOKS like a reference, but it is not the same thing:
+
+    function reassign(User $u): void  { $u = new User('New'); }
+    function mutate(User $u): void    { $u->name = 'Changed'; }
+
+    $user = new User('Ravi');
+    mutate($user);      echo $user->name;   // 'Changed' - the object was changed
+    reassign($user);    echo $user->name;   // 'Changed' - NOT 'New'
+
+Explanation: $u is a COPY OF THE HANDLE. Changing the object through it affects
+the shared object. REPLACING $u only replaces the local copy of the handle, so
+the caller's variable still points to the original object. With a true reference
+(User &$u) the reassignment would also affect the caller.
+
+    SUMMARY TABLE
+    +----------------+---------------------------+--------------------------+
+    | Assignment     | What is copied            | Changes visible to other?|
+    +----------------+---------------------------+--------------------------+
+    | $b = $a (int)  | the value                 | No                       |
+    | $b = $a (array)| the value (via COW)       | No                       |
+    | $b = $a (obj)  | the handle                | Yes, if you MODIFY it    |
+    |                |                           | No, if you REPLACE it    |
+    | $b = &$a (any) | nothing - same storage    | Yes, both ways           |
+    +----------------+---------------------------+--------------------------+
+
+To get a genuinely independent object you must use clone (file 46).
+
+
+2.6 CONSTANTS - define() vs const
+---------------------------------
+A constant is a value that cannot change during the request. By convention it is
+written in UPPER_SNAKE_CASE and used without a $.
+
+    define('MAX_UPLOAD_MB', 10);      // function call, runtime
+    const TAX_RATE = 0.18;            // language construct, compile time
+
+    echo MAX_UPLOAD_MB;               // 10   (no $ sign)
+
+DIFFERENCES (memorise this table - it is asked constantly):
+
+    +--------------------------+---------------------+---------------------+
+    | Feature                  | define()            | const               |
+    +--------------------------+---------------------+---------------------+
+    | Type                     | function            | language construct  |
+    +--------------------------+---------------------+---------------------+
+    | Defined at               | runtime             | compile time        |
+    +--------------------------+---------------------+---------------------+
+    | Can be conditional?      | YES                 | NO (not inside if)  |
+    | (inside if / loop)       |                     |                     |
+    +--------------------------+---------------------+---------------------+
+    | Works inside a class?    | NO                  | YES (class constant)|
+    +--------------------------+---------------------+---------------------+
+    | Dynamic name allowed?    | YES define($n, $v)  | NO                  |
+    +--------------------------+---------------------+---------------------+
+    | Namespaced?              | NO (global unless   | YES (respects the   |
+    |                          | you write it in the | current namespace)  |
+    |                          | name)               |                     |
+    +--------------------------+---------------------+---------------------+
+    | Arrays allowed?          | YES (since 7.0)     | YES (since 5.6)     |
+    +--------------------------+---------------------+---------------------+
+    | Speed                    | slightly slower     | slightly faster     |
+    +--------------------------+---------------------+---------------------+
+
+RULE OF THUMB:
+    Use const by default. Use define() only when the name or the definition must
+    be decided at runtime.
+
+OTHER FACTS:
+    - Constants are global to the request once defined - visible inside
+      functions without importing (unlike variables).
+    - They cannot be changed or unset once defined. Redefining raises a warning.
+    - defined('NAME') checks existence; constant('NAME') reads by dynamic name.
+    - Case sensitivity: constants are case sensitive. (define() once had a
+      case-insensitive option; deprecated in 7.3, removed in 8.0.)
+    - Class constants use const inside a class and are accessed with
+      ClassName::CONSTANT. From PHP 8.3 they can be typed:
+          const string CURRENCY = 'INR';
+
+
+2.7 MAGIC CONSTANTS
+-------------------
+These change value depending on where they are used. They are resolved at
+compile time, not runtime.
+
+    __LINE__       current line number
+    __FILE__       full path of the current file
+    __DIR__        directory of the current file (use for includes!)
+    __FUNCTION__   current function name
+    __CLASS__      current class name (with namespace)
+    __METHOD__     Class::method
+    __NAMESPACE__  current namespace
+    ClassName::class   fully qualified class name as a string (PHP 5.5+)
+
+__DIR__ IS THE IMPORTANT ONE IN REAL PROJECTS:
+
+    require __DIR__ . '/../config/database.php';
+
+This always resolves relative to the FILE, not to the working directory the
+script was launched from. Using a relative path like require '../config.php'
+breaks the moment a cron job runs the script from a different directory. Always
+use __DIR__ in includes.
+
+
+--------------------------------------------------------------------------------
+3. REAL-TIME EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: THE CONFIG ARRAY MODIFIED BY ACCIDENT
+A helper takes the config array by reference to "save memory":
+    function applyDefaults(array &$config) { $config['debug'] = true; }
+Later, an unrelated part of the app reads $config['debug'] and unexpectedly
+finds true in production. Because of copy-on-write, the & was never needed for
+performance. Removing it and returning a new array fixes a whole class of bugs.
+
+EXAMPLE 2: THE CLASSIC foreach REFERENCE BUG
+    foreach ($rows as &$row) { $row['total'] = $row['qty'] * $row['price']; }
+    foreach ($rows as $row)  { echo $row['total']; }   // last row duplicated!
+The first loop leaves $row as a reference to the last element; the second loop
+then overwrites that element on every iteration. This bug appears in production
+codebases constantly. Fix: unset($row); after the first loop, or avoid & and use
+foreach ($rows as $i => $row) { $rows[$i]['total'] = ...; }. Full explanation in
+file 15.
+
+EXAMPLE 3: OBJECT HANDLES IN A SERVICE LAYER
+    $order = $repository->find(10);
+    $service->applyDiscount($order);       // no & used
+    echo $order->total;                    // already updated
+Developers are surprised the change is visible. It is because the object handle
+was copied, not the object. Real teams use this deliberately, but many prefer
+immutable value objects (readonly) so nothing can be changed unexpectedly.
+
+EXAMPLE 4: MEMORY SPIKE ON A LARGE IMPORT
+A CSV importer loads 200 MB of rows into $rows, then does
+$cleaned = array_map(..., $rows). For a moment both arrays exist and the script
+hits memory_limit. Real fix: process row by row with a generator, or unset($rows)
+immediately after transforming. Understanding copy-on-write is what tells you
+where the second copy came from.
+
+EXAMPLE 5: CONSTANTS IN A REAL APPLICATION
+    // config/constants.php
+    const APP_ENV_PRODUCTION = 'production';
+    const MAX_LOGIN_ATTEMPTS = 5;
+    define('APP_ROOT', dirname(__DIR__));      // runtime value -> define()
+APP_ROOT must be computed at runtime from __DIR__, so define() is correct there,
+while the fixed values use const. Modern frameworks put most of this in config
+FILES that return arrays, keeping only a few true constants.
+
+
+--------------------------------------------------------------------------------
+4. USE CASES
+--------------------------------------------------------------------------------
+
+WHEN TO USE REFERENCES (&)
+    - A function must modify the caller's array/variable in place and returning
+      is genuinely impractical (this is how sort() and preg_match() work).
+    - Building a nested structure in place in a memory-critical CLI script.
+    - Implementing a linked structure where two names must stay in sync.
+
+WHEN NOT TO USE REFERENCES
+    - For performance on read-only data. Copy-on-write already avoids the copy.
+    - To return several values. Return an array or an object instead.
+    - In foreach, unless you unset the variable straight after the loop.
+    - Anywhere the code becomes harder to follow - which is most places.
+
+WHEN TO USE const
+    - Fixed values known when the file is written: tax rates, status strings,
+      limits, error codes.
+    - Class constants that belong to a specific class: Order::STATUS_PAID.
+    - Anything you want namespaced and analysable by your IDE.
+
+WHEN TO USE define()
+    - The value must be computed at runtime: define('APP_ROOT', dirname(__DIR__));
+    - The definition is conditional:
+        if (!defined('APP_ENV')) { define('APP_ENV', 'production'); }
+    - The constant name itself is dynamic (rare).
+
+WHEN TO USE NEITHER (use configuration instead)
+    - Values that differ per environment (database credentials, API keys).
+      Those belong in .env / config files, not in constants compiled into code.
+    - Values that might need to change without a code deploy.
+
+WHEN TO USE ENUMS INSTEAD OF CONSTANTS (modern PHP)
+    A group of related string/int constants (status values, roles, types) should
+    be an enum in PHP 8.1+, because an enum gives you type safety:
+        enum OrderStatus: string { case Paid = 'paid'; case Shipped = 'shipped'; }
+    See file 44.
+
+
+--------------------------------------------------------------------------------
+5. CODE EXAMPLES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CODE 1 : VALUE vs REFERENCE vs OBJECT HANDLE (the three behaviours)
+File: reference_demo.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    final class Cart
+    {
+        public function __construct(public array $items = [])
+        {
+        }
+    }
+
+    echo "--- 1. SCALAR BY VALUE ---" . PHP_EOL;
+    $a = 10;
+    $b = $a;                 // copy
+    $b = 20;
+    echo "a={$a} b={$b}" . PHP_EOL;              // a=10 b=20
+
+    echo "--- 2. SCALAR BY REFERENCE ---" . PHP_EOL;
+    $c = 10;
+    $d = &$c;                // same storage
+    $d = 20;
+    echo "c={$c} d={$d}" . PHP_EOL;              // c=20 d=20
+
+    echo "--- 3. ARRAY BY VALUE ---" . PHP_EOL;
+    $list1 = ['a', 'b'];
+    $list2 = $list1;         // copy-on-write: no real copy yet
+    $list2[] = 'c';          // write happens -> real copy made now
+    echo 'list1=' . implode(',', $list1) . ' list2=' . implode(',', $list2) . PHP_EOL;
+
+    echo "--- 4. OBJECT: MODIFY vs REPLACE ---" . PHP_EOL;
+    $cart1 = new Cart(['pen']);
+    $cart2 = $cart1;         // copies the HANDLE
+
+    $cart2->items[] = 'book';           // MODIFY the shared object
+    echo 'cart1: ' . implode(',', $cart1->items) . PHP_EOL;   // pen,book
+
+    $cart2 = new Cart(['eraser']);      // REPLACE the local handle only
+    echo 'cart1: ' . implode(',', $cart1->items) . PHP_EOL;   // pen,book (unchanged)
+    echo 'cart2: ' . implode(',', $cart2->items) . PHP_EOL;   // eraser
+
+    EXPECTED OUTPUT:
+        --- 1. SCALAR BY VALUE ---
+        a=10 b=20
+        --- 2. SCALAR BY REFERENCE ---
+        c=20 d=20
+        --- 3. ARRAY BY VALUE ---
+        list1=a,b list2=a,b,c
+        --- 4. OBJECT: MODIFY vs REPLACE ---
+        cart1: pen,book
+        cart1: pen,book
+        cart2: eraser
+
+
+--------------------------------------------------------------------------------
+CODE 2 : FUNCTION PARAMETERS - BY VALUE vs BY REFERENCE
+File: param_reference.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    /**
+     * Preferred style: take input, return output. The caller stays in control.
+     */
+    function withDiscount(array $items, float $percent): array
+    {
+        foreach ($items as $index => $item) {
+            $items[$index]['price'] = round($item['price'] * (1 - $percent / 100), 2);
+        }
+        return $items;      // a NEW array; the caller's array is untouched
+    }
+
+    /**
+     * By-reference style: only justified when in-place mutation is the point.
+     * The & in the signature is what makes it work - the caller writes nothing
+     * special, which is exactly why this style can surprise people.
+     */
+    function applyDiscountInPlace(array &$items, float $percent): void
+    {
+        foreach ($items as $index => $item) {
+            $items[$index]['price'] = round($item['price'] * (1 - $percent / 100), 2);
+        }
+    }
+
+    $original = [
+        ['name' => 'Pen',  'price' => 100.00],
+        ['name' => 'Book', 'price' => 250.00],
+    ];
+
+    $discounted = withDiscount($original, 10);
+    echo 'original[0]: '   . $original[0]['price']   . PHP_EOL;   // 100
+    echo 'discounted[0]: ' . $discounted[0]['price'] . PHP_EOL;   // 90
+
+    applyDiscountInPlace($original, 10);
+    echo 'original[0] after in-place: ' . $original[0]['price'] . PHP_EOL;   // 90
+
+    EXPECTED OUTPUT:
+        original[0]: 100
+        discounted[0]: 90
+        original[0] after in-place: 90
+
+
+--------------------------------------------------------------------------------
+CODE 3 : PROVING COPY-ON-WRITE WITH MEMORY MEASUREMENTS
+File: copy_on_write.php  (run from the CLI: php copy_on_write.php)
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    function mb(): string
+    {
+        return number_format(memory_get_usage(true) / 1048576, 2) . ' MB';
+    }
+
+    echo 'start                  : ' . mb() . PHP_EOL;
+
+    $big = range(1, 500_000);                 // ~ big array
+    echo 'after creating array   : ' . mb() . PHP_EOL;
+
+    $copy = $big;                             // NO memory increase (COW)
+    echo 'after $copy = $big     : ' . mb() . PHP_EOL;
+
+    $copy[0] = 'changed';                     // write -> real duplication now
+    echo 'after modifying $copy  : ' . mb() . PHP_EOL;
+
+    unset($copy);
+    echo 'after unset($copy)     : ' . mb() . PHP_EOL;
+
+    // Reading a huge array inside a function does NOT copy it either:
+    function sumAll(array $numbers): int      // by value, no & needed
+    {
+        return array_sum(array_filter($numbers, 'is_int'));
+    }
+    echo 'sum computed           : ' . sumAll($big) . PHP_EOL;
+    echo 'after read-only call   : ' . mb() . PHP_EOL;
+
+    ACTUAL OUTPUT (measured on PHP 8.5.4; exact numbers vary by machine):
+        start                  : 2.00 MB
+        after creating array   : 12.00 MB
+        after $copy = $big     : 12.00 MB      <- the proof: no extra memory
+        after modifying $copy  : 22.00 MB      <- copy happened only on write
+        after unset($copy)     : 12.00 MB
+        sum computed           : 125000250000
+        after read-only call   : 12.00 MB      <- read-only call cost nothing
+
+    What matters is the PATTERN, not the numbers: flat on copy, +10 MB on the
+    first write, back down on unset, flat again for the read-only function call.
+
+
+--------------------------------------------------------------------------------
+CODE 4 : CONSTANTS IN PRACTICE
+File: constants_demo.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    // --- const: compile time, cannot be conditional, respects namespace ---
+    const APP_NAME  = 'InvoiceApp';
+    const TAX_RATE  = 0.18;
+    const ALLOWED_UPLOAD_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
+
+    // --- define(): runtime value, can be conditional ---
+    define('APP_ROOT', dirname(__DIR__));          // computed at runtime
+
+    if (!defined('APP_ENV')) {                     // conditional -> must be define()
+        define('APP_ENV', getenv('APP_ENV') ?: 'production');
+    }
+
+    // --- class constants, typed since PHP 8.3 ---
+    final class Order
+    {
+        public const string STATUS_PENDING = 'pending';
+        public const string STATUS_PAID    = 'paid';
+        public const int    MAX_ITEMS      = 50;
+
+        // Class constants can be built from other constants:
+        public const string LABEL = APP_NAME . ' order';
+    }
+
+    echo APP_NAME . PHP_EOL;                       // InvoiceApp
+    echo Order::STATUS_PAID . PHP_EOL;             // paid
+    echo Order::LABEL . PHP_EOL;                   // InvoiceApp order
+    echo implode(', ', ALLOWED_UPLOAD_TYPES) . PHP_EOL;
+
+    // Constants are visible inside functions without importing:
+    function taxOn(float $amount): float
+    {
+        return round($amount * TAX_RATE, 2);       // no "global" needed
+    }
+    echo taxOn(1000) . PHP_EOL;                    // 180
+
+    // Checking and dynamic access:
+    var_dump(defined('TAX_RATE'));                 // bool(true)
+    echo constant('Order::STATUS_PENDING') . PHP_EOL;   // pending
+
+    // Magic constants:
+    echo __LINE__ . ' in ' . basename(__FILE__) . PHP_EOL;
+    echo Order::class . PHP_EOL;                   // Order (fully qualified)
+
+    EXPECTED OUTPUT:
+        InvoiceApp
+        paid
+        InvoiceApp order
+        image/jpeg, image/png, application/pdf
+        180
+        bool(true)
+        pending
+        49 in constants_demo.php
+        Order
+
+
+--------------------------------------------------------------------------------
+6. CODE EXPLANATION
+--------------------------------------------------------------------------------
+
+EXPLANATION OF CODE 1 (reference_demo.php)
+------------------------------------------
+    public function __construct(public array $items = [])
+        Promoted PUBLIC property, used here only to keep the demo short. In real
+        code prefer private properties with methods.
+
+    $b = $a;   (scalars)
+        Copies the value. Two independent boxes. Changing $b cannot affect $a.
+
+    $d = &$c;
+        The & binds both names to one storage slot. Now $c and $d are the same
+        variable with two names. Assigning to either changes both.
+
+    $list2 = $list1; then $list2[] = 'c';
+        The assignment does not copy immediately (copy-on-write). The append is
+        a WRITE, so PHP first separates the arrays and then appends to $list2
+        only. $list1 stays ['a','b']. Result: arrays behave exactly like values,
+        even though PHP avoids the physical copy when it can.
+
+    $cart2 = $cart1;  then  $cart2->items[] = 'book';
+        Only the handle was copied, so both names refer to ONE Cart object.
+        Adding an item is visible through $cart1 too. This is why people say
+        "objects are passed by reference" - the observable behaviour is similar,
+        but the mechanism is a copied handle.
+
+    $cart2 = new Cart(['eraser']);
+        This REPLACES what $cart2 points at. $cart1 still points at the original
+        object, so it is unchanged. If objects were true references, $cart1 would
+        now show 'eraser'. This single line is the proof that handles are not
+        references, and it is a favourite interview question.
+
+
+EXPLANATION OF CODE 2 (param_reference.php)
+-------------------------------------------
+    function withDiscount(array $items, float $percent): array
+        Takes the array by value. Because of copy-on-write, no copy is made
+        until the first write inside the function. The caller's array is never
+        modified, which makes the function safe and easy to test.
+
+    $items[$index]['price'] = ...
+        The first write triggers the separation. From this point the function
+        works on its own copy.
+
+    round($item['price'] * (1 - $percent / 100), 2)
+        1 - 10/100 = 0.9, so the price is multiplied by 0.9. round(..., 2) keeps
+        the result to two decimals so money values stay clean.
+
+    function applyDiscountInPlace(array &$items, ...)
+        The & in the PARAMETER makes PHP bind the caller's variable directly.
+        Note the caller writes applyDiscountInPlace($original, 10) with no
+        special syntax - nothing at the call site warns you that $original will
+        change. That invisibility is the main argument against by-reference
+        parameters, and it is why the : void return type is used here (there is
+        nothing to return; the effect is the mutation).
+
+    WHICH ONE SHOULD YOU USE?
+        The first. Return a new array unless in-place modification is the
+        explicit purpose of the function.
+
+
+EXPLANATION OF CODE 3 (copy_on_write.php)
+-----------------------------------------
+    memory_get_usage(true)
+        Returns memory allocated from the operating system, in bytes. The true
+        argument gives the real allocated size rather than PHP's internal count,
+        which makes the effect visible in whole megabytes.
+
+    range(1, 500_000)
+        Creates an array with 500,000 integers. The underscores are numeric
+        literal separators (7.4+) and are ignored by PHP.
+
+    $copy = $big;  -> memory unchanged
+        The proof of copy-on-write. If PHP copied eagerly, memory would double
+        on this line. It does not, because refcount simply increases to 2.
+
+    $copy[0] = 'changed';  -> memory roughly doubles
+        A write to a shared array forces separation. Only now does the second
+        physical array exist. This is where real memory spikes come from in
+        import scripts.
+
+    unset($copy);  -> memory returns
+        Dropping the second reference lets the garbage collector release the
+        duplicated array.
+
+    sumAll($big) does not increase memory
+        The function takes the array by value but only READS it, so no
+        separation happens. This is the concrete evidence for the rule: do not
+        add & to parameters "for performance".
+
+    array_filter($numbers, 'is_int')
+        Passes the built-in is_int as a callable string. Covered in file 33.
+
+
+EXPLANATION OF CODE 4 (constants_demo.php)
+------------------------------------------
+    const APP_NAME = 'InvoiceApp';
+        Defined at compile time. Because of that it cannot appear inside an if
+        block or use a runtime value like getenv().
+
+    const ALLOWED_UPLOAD_TYPES = [...]
+        Arrays in constants are allowed (const since 5.6, define since 7.0).
+        This is a common real use: a whitelist of permitted MIME types.
+
+    define('APP_ROOT', dirname(__DIR__));
+        dirname(__DIR__) is evaluated when the line runs, so define() is
+        required. __DIR__ is the directory of THIS file, and dirname() goes one
+        level up - the standard way to compute a project root.
+
+    if (!defined('APP_ENV')) { define(...); }
+        Conditional definition, which const cannot do. defined() returns true if
+        the constant already exists, preventing a "constant already defined"
+        warning when the file is included twice.
+
+    getenv('APP_ENV') ?: 'production'
+        Reads an environment variable; the short ternary supplies a default when
+        it is empty or false. Defaulting to the SAFE value (production) rather
+        than 'development' is deliberate - a misconfigured server should not
+        accidentally expose debug output.
+
+    public const string STATUS_PAID = 'paid';
+        A TYPED class constant (PHP 8.3+). The type prevents a subclass from
+        redefining the constant with a different type.
+
+    public const string LABEL = APP_NAME . ' order';
+        Constants may be built from other constants and simple expressions at
+        compile time.
+
+    function taxOn() uses TAX_RATE without "global"
+        Constants are visible in every scope. That is a genuine advantage over
+        global variables - but it also means constants are global state, so use
+        them only for values that truly never change.
+
+    constant('Order::STATUS_PENDING')
+        Reads a constant by NAME at runtime. Useful when the name is dynamic,
+        for example mapping a database value to a class constant.
+
+    Order::class
+        Returns the fully qualified class name as a string, resolved at compile
+        time. Preferred over writing 'Order' as a literal string because it is
+        rename-safe and IDE-aware.
+
+
+--------------------------------------------------------------------------------
+7. INTERVIEW QUESTIONS
+--------------------------------------------------------------------------------
+
+============================= BEGINNER =============================
+
+Q1. What is the difference between assigning by value and by reference?
+ANSWER:
+    By value (the default) copies the value into a new variable, so the two are
+    independent. By reference, written with &, makes both names point to the
+    same storage, so changing one changes the other.
+WHY THIS IS CORRECT:
+    It defines both and states the observable consequence, which is what the
+    question is really about.
+
+Q2. How do you declare a constant in PHP?
+ANSWER:
+    With the const keyword (const TAX_RATE = 0.18;) or the define() function
+    (define('TAX_RATE', 0.18);). Constants are used without a $ sign and cannot
+    be changed once defined.
+WHY THIS IS CORRECT:
+    Both forms plus the two properties every constant has.
+
+Q3. What is __DIR__ and why is it used in include paths?
+ANSWER:
+    __DIR__ is a magic constant holding the directory of the current file. It is
+    used in include/require paths because it is absolute and independent of the
+    working directory. A relative path like require '../config.php' breaks when
+    the script is run from a different directory, such as by cron.
+WHY THIS IS CORRECT:
+    It explains the failure mode that makes __DIR__ necessary.
+
+
+=========================== INTERMEDIATE ===========================
+
+Q4. What is the difference between define() and const?
+ANSWER:
+    const is a language construct evaluated at compile time; define() is a
+    function evaluated at runtime. const cannot be used conditionally or with a
+    runtime-computed value, but it can be used inside classes and respects
+    namespaces. define() can be conditional, can take a dynamic name, but is
+    always global. Use const by default and define() when the value or the
+    condition is only known at runtime.
+WHY THIS IS CORRECT:
+    It covers the four differences that matter and finishes with the practical
+    rule.
+
+Q5. Are objects assigned by reference in PHP?
+ANSWER:
+    No. Object variables hold an object HANDLE, and assignment copies the
+    handle. Both variables then point to the same object, so modifying a
+    property through one is visible through the other. But replacing one
+    variable with a new object does not affect the other, which proves it is not
+    a true reference. A true reference requires &.
+WHY THIS IS CORRECT:
+    "No, it is a handle" plus the replace-versus-modify test is the exact
+    distinction interviewers are checking.
+
+Q6. What is copy-on-write?
+ANSWER:
+    An optimisation where PHP does not physically copy a value on assignment. It
+    increments a reference count and shares the same memory. The real copy
+    happens only when one of the variables is modified. This makes assigning and
+    passing large arrays effectively free as long as nobody writes to them.
+WHY THIS IS CORRECT:
+    It names the mechanism (refcount) and the trigger (write), not just the
+    slogan.
+
+Q7. Should you pass large arrays by reference for performance?
+ANSWER:
+    No. Copy-on-write already avoids the copy for read-only access, so & adds no
+    benefit and can be slower because a reference disables some optimisations.
+    Use & only when the function's purpose is to modify the caller's variable in
+    place.
+WHY THIS IS CORRECT:
+    It corrects a widespread myth and gives the one legitimate reason to use &.
+
+
+============================= ADVANCED =============================
+
+Q8. Explain what happens in memory for: $a = range(1,100000); $b = $a; $b[] = 1;
+ANSWER:
+    Line 1 allocates one array with refcount 1. Line 2 does not copy anything;
+    both variables point to the same array and refcount becomes 2. Line 3 is a
+    write to a shared array, so PHP separates it: it duplicates the array,
+    lowers the original's refcount to 1, and appends to the new copy. Peak
+    memory momentarily holds both arrays.
+WHY THIS IS CORRECT:
+    It walks the refcount through each step, which is exactly what the question
+    tests.
+
+Q9. Why is the foreach reference bug so common, and how do you avoid it?
+ANSWER:
+    Because foreach ($items as &$item) leaves $item as a reference to the LAST
+    element after the loop, since PHP has no block scope. A second foreach
+    reusing $item then writes into that last element on every iteration,
+    corrupting it. Avoid it by calling unset($item) immediately after the loop,
+    by never reusing the variable name, or by not using & at all and writing to
+    $items[$key] instead.
+WHY THIS IS CORRECT:
+    It combines the reference behaviour with the no-block-scope rule, which is
+    the actual cause, and gives three concrete fixes.
+
+Q10. When would you choose a class constant, a global constant, or a config
+     value?
+ANSWER:
+     A class constant when the value belongs to one class and is part of its
+     API, such as Order::STATUS_PAID. A global constant only for a handful of
+     truly application-wide, never-changing values such as APP_ROOT. A config
+     value for anything that varies by environment - credentials, URLs, feature
+     flags - because those must change without editing code. In modern PHP a
+     group of related status constants is better modelled as an enum, which adds
+     type safety.
+WHY THIS IS CORRECT:
+     It decides by ownership and rate of change, and mentions the enum
+     replacement, which shows current knowledge.
+
+
+========================== SCENARIO BASED ==========================
+
+Q11. After a refactor, changing one order in a list also changes another order.
+     What do you suspect?
+ANSWER:
+     Shared object handles or leftover references. If the code did
+     $b = $a for objects, both names point to the same object, so editing one
+     edits both - clone is needed for an independent copy. If arrays are
+     involved, look for a & in a foreach or a by-reference parameter that linked
+     two elements. I would dump the structure with var_dump, which marks
+     references, and remove the & or add a clone depending on which case it is.
+WHY THIS IS CORRECT:
+     It names both possible causes, the diagnostic tool, and the fix for each.
+
+Q12. A CSV import crashes with "Allowed memory size exhausted" on a 200 MB file.
+     How does this topic help you fix it?
+ANSWER:
+     The crash usually comes from holding two copies at once - the loaded array
+     plus a transformed copy created by array_map or a modification of a shared
+     array. Copy-on-write explains exactly when the second copy appears. Fixes:
+     process the file row by row with fgetcsv or a generator so the whole file
+     is never in memory, unset the original array as soon as it is transformed,
+     and avoid building a second full array when you can write results out
+     incrementally.
+WHY THIS IS CORRECT:
+     It traces the memory to the write that caused separation and then gives the
+     streaming solution, which is the real production answer.
+
+Q13. A junior developer writes function process(array &$data) on every function
+     "to make it faster". How do you review that?
+ANSWER:
+     I would explain that copy-on-write means read-only access already costs
+     nothing, so the & gives no speed benefit and can prevent optimisations. The
+     bigger problem is correctness: every call site can now be silently mutated,
+     which makes bugs hard to trace and functions hard to test. I would ask for
+     & only where in-place mutation is the documented purpose, and otherwise
+     return a new value.
+WHY THIS IS CORRECT:
+     It addresses both the performance myth and the maintainability cost, which
+     is what a code review should do.
+
+
+====================== REAL-TIME PROJECT QUESTIONS ======================
+
+Q14. Where do constants belong in a real project structure?
+ANSWER:
+     Class constants live in the class they describe. A very small number of
+     application-wide constants, such as APP_ROOT, are defined in the bootstrap
+     file. Everything environment-specific goes in .env plus a config file that
+     returns an array, loaded once and injected where needed - never as
+     constants, because constants cannot differ between environments without
+     changing code and cannot be overridden in tests. Related sets of values
+     become enums.
+WHY THIS IS CORRECT:
+     It separates the three categories by their real constraint: testability and
+     per-environment variation.
+
+Q15. How do you make sure a shared object is not modified accidentally in a
+     large codebase?
+ANSWER:
+     Prefer immutable value objects: readonly properties (8.1) or readonly
+     classes (8.2) so a property cannot be changed after construction, and
+     "with" methods that return a modified clone instead of mutating. Use
+     DateTimeImmutable instead of DateTime for the same reason. Where mutation
+     is required, keep it inside one owning service rather than passing the
+     object around for anyone to change, and use clone at the boundary when a
+     caller must get its own copy.
+WHY THIS IS CORRECT:
+     It answers with the modern language features designed for exactly this
+     problem and names the standard library example everyone recognises.
+
+
+--------------------------------------------------------------------------------
+8. COMMON MISTAKES
+--------------------------------------------------------------------------------
+
+MISTAKE 1: Using & "for performance" on read-only parameters.
+    No benefit (copy-on-write already handles it), plus accidental mutation.
+
+MISTAKE 2: The foreach reference bug.
+    foreach ($a as &$v) {...} foreach ($a as $v) {...}   corrupts the last item.
+    Fix: unset($v); right after the first loop. See file 15.
+
+MISTAKE 3: Believing objects are copied on assignment.
+    $b = $a; $b->name = 'x';  also changes $a->name. Use clone for a real copy.
+
+MISTAKE 4: Believing objects are true references.
+    Reassigning the parameter inside a function does NOT change the caller's
+    variable, unless the parameter is declared with &.
+
+MISTAKE 5: Trying to use const inside an if block.
+    Fatal error. Use define() for conditional definitions.
+
+MISTAKE 6: Using define() inside a class.
+    It creates a GLOBAL constant, not a class constant. Use const in classes.
+
+MISTAKE 7: Putting environment-specific values (DB password, API key) in
+    constants. They cannot be changed per environment or overridden in tests,
+    and hard-coded credentials in source control are a security incident.
+
+MISTAKE 8: Using relative paths in include/require.
+    require '../config.php' breaks when the working directory changes.
+    Use require __DIR__ . '/../config.php'.
+
+MISTAKE 9: Forgetting constants have no $ sign.
+    echo $TAX_RATE; is an undefined VARIABLE, not the constant.
+
+MISTAKE 10: Redefining a constant and expecting it to change. It raises a
+    warning and keeps the original value. Constants are immutable by design.
+
+
+--------------------------------------------------------------------------------
+9. BEST PRACTICES
+--------------------------------------------------------------------------------
+
+ 1. Default to by-value. Use & only when in-place mutation is the explicit,
+    documented purpose of the function.
+ 2. Always unset the loop variable after a foreach that used &.
+ 3. Prefer returning a new array/object over mutating an argument.
+ 4. Use clone (and __clone for deep copies) when a caller needs an independent
+    object. Prefer readonly/immutable objects so the question rarely arises.
+ 5. Use const by default; use define() only for runtime or conditional values.
+ 6. Use class constants for values owned by a class, and enums (8.1+) for sets
+    of related values.
+ 7. Name constants in UPPER_SNAKE_CASE and group them meaningfully.
+ 8. Keep environment-specific values in configuration, never in constants.
+ 9. Always build include paths with __DIR__.
+10. Use ClassName::class instead of a hard-coded class-name string.
+11. In memory-critical scripts, unset() large arrays as soon as they are no
+    longer needed, and stream data instead of loading it all.
+
+
+--------------------------------------------------------------------------------
+10. IMPORTANT NOTES (QUICK REVISION)
+--------------------------------------------------------------------------------
+
+KEY POINTS TO REMEMBER
+    - Default assignment = BY VALUE (including arrays).
+    - & = BY REFERENCE = two names, one storage slot.
+    - COPY-ON-WRITE: no physical copy until a write happens. Reading is free.
+    - OBJECTS: assignment copies the HANDLE.
+        modify through either name -> both see it
+        replace one name          -> the other is unaffected
+      That is why objects are NOT the same as references.
+    - clone creates a real (shallow) copy of an object.
+    - const = compile time, class-friendly, namespaced.
+      define() = runtime, conditional, dynamic name, always global.
+    - Constants are visible in all scopes and cannot be changed.
+    - __DIR__ for include paths, ClassName::class for class names.
+
+IMPORTANT SYNTAX
+    $b = &$a;                          reference assignment
+    unset($b);                         break the reference
+    function f(array &$data)           by-reference parameter
+    foreach ($a as &$v) {...} unset($v);   safe reference loop
+    const TAX_RATE = 0.18;             compile-time constant
+    define('APP_ROOT', dirname(__DIR__));  runtime constant
+    public const string STATUS = 'x';  typed class constant (8.3+)
+    Order::STATUS_PAID                 class constant access
+
+FREQUENTLY USED FUNCTIONS / CONSTANTS
+    defined('NAME')          does the constant exist?
+    constant('NAME')         read a constant by dynamic name
+    get_defined_constants()  list all constants (debugging)
+    memory_get_usage(true)   observe copy-on-write
+    unset($var)              drop a reference / free memory
+    clone $object            shallow copy of an object
+    __LINE__ __FILE__ __DIR__ __FUNCTION__ __CLASS__ __METHOD__ __NAMESPACE__
+    ClassName::class
+
+COMMON INTERVIEW POINTS
+    - "Value vs reference" -> copy vs shared storage.
+    - "Are objects passed by reference?" -> No, handle is copied; show the
+      replace-vs-modify test.
+    - "What is copy-on-write?" -> refcount, copy deferred to first write.
+    - "Should I use & for big arrays?" -> No.
+    - "define vs const" -> the six-row table.
+
+QUICK REVISION CHECKLIST
+    [ ] I can explain & in one sentence with an example.
+    [ ] I can explain copy-on-write and what triggers the copy.
+    [ ] I can prove objects use handles, not references, in 4 lines of code.
+    [ ] I can list four differences between define() and const.
+    [ ] I know why __DIR__ is used in includes.
+    [ ] I know why & should not be used "for performance".
+
+
+--------------------------------------------------------------------------------
+11. PRACTICAL EXERCISES
+--------------------------------------------------------------------------------
+
+EXERCISE 1 (BASIC)
+    Write reference_practice.php that demonstrates, with printed output and a
+    one-line comment for each:
+      (a) two scalars assigned by value,
+      (b) two scalars assigned by reference,
+      (c) unset() breaking a reference,
+      (d) an array copied and then modified,
+      (e) two variables holding the same object where modifying one is visible
+          through the other.
+    GOAL: be able to reproduce the four behaviours from memory in an interview.
+
+EXERCISE 2 (INTERMEDIATE)
+    Measure copy-on-write yourself.
+      - Create an array of 1,000,000 integers with range().
+      - Print memory after creating it, after copying it, after modifying the
+        copy, and after unset().
+      - Then write two functions: readOnlySum(array $n): int and
+        mutate(array &$n): void. Call each and print memory before and after.
+      - Write a short conclusion: in which of the four steps did memory grow,
+        and exactly why?
+    GOAL: replace belief with measurement, so the senior-level answer becomes
+    something you have seen.
+
+EXERCISE 3 (REAL-TIME PROJECT STYLE)
+    Build a small configuration system the way a real project would.
+      - config/constants.php: define APP_ROOT with define() and __DIR__, and
+        declare const APP_NAME, const DEFAULT_CURRENCY and a const array
+        ALLOWED_UPLOAD_TYPES. No closing tag.
+      - src/Order.php: a final class with typed class constants
+        STATUS_PENDING, STATUS_PAID, STATUS_CANCELLED, a const MAX_ITEMS, and a
+        static method isValidStatus(string $s): bool that checks the value
+        against the constants.
+      - index.php: require the config using __DIR__, print each constant, call
+        isValidStatus() with a valid and an invalid value, and use
+        constant('Order::STATUS_PAID') to show dynamic access.
+      - Finally, add a short comment block answering: which of these values
+        should NOT be constants in a real application, and where should they
+        live instead?
+    GOAL: practise the const/define decision on realistic code, and end with the
+    judgement call an interviewer will ask you to justify.
+
+================================================================================
+END OF TOPIC 04
+NEXT: 05-data-types-overview.txt
+================================================================================

@@ -1,0 +1,876 @@
+================================================================================
+TOPIC 02 : PHP SYNTAX BASICS - TAGS, STATEMENTS, COMMENTS & CASE SENSITIVITY
+================================================================================
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+WHAT IS THIS TOPIC?
+This topic covers the physical rules of writing PHP: how PHP code is marked
+inside a file, how statements end, how to write comments, how to output values,
+and which parts of the language are case sensitive.
+
+WHY IS IT IMPORTANT?
+- These rules cause the most common beginner errors: "headers already sent",
+  "unexpected end of file", stray blank lines in JSON responses.
+- Case sensitivity questions appear in nearly every written PHP test.
+- Interviewers judge code quality from the first file they see. Correct tag
+  usage and clean comments signal a professional developer immediately.
+
+
+--------------------------------------------------------------------------------
+2. COMPLETE EXPLANATION (BASIC -> ADVANCED)
+--------------------------------------------------------------------------------
+
+2.1 PHP TAGS - HOW PHP FINDS YOUR CODE
+--------------------------------------
+A .php file is treated as plain text until PHP sees an opening tag. Everything
+outside the tags is sent to the browser untouched.
+
+    +---------------------+--------------------+-------------------------------+
+    | Tag                 | Status             | Use it?                       |
+    +---------------------+--------------------+-------------------------------+
+    | <?php  ...  ?>      | Standard           | YES - always use this         |
+    +---------------------+--------------------+-------------------------------+
+    | <?=  $value  ?>     | Short echo tag.    | YES - in templates only.      |
+    |                     | Always available   | It is shorthand for           |
+    |                     | since PHP 5.4      | <?php echo $value; ?>         |
+    +---------------------+--------------------+-------------------------------+
+    | <?  ...  ?>         | Short open tag.    | NO - depends on the           |
+    |                     | Needs short_open_  | short_open_tag ini setting,   |
+    |                     | tag=On             | so code breaks on other       |
+    |                     |                    | servers. Removed in PHP 8?    |
+    |                     |                    | No, still exists but avoid.   |
+    +---------------------+--------------------+-------------------------------+
+    | <%  ...  %>         | ASP tags           | REMOVED in PHP 7. Do not use. |
+    +---------------------+--------------------+-------------------------------+
+    | <script language=   | Script tags        | REMOVED in PHP 7. Do not use. |
+    | "php">              |                    |                               |
+    +---------------------+--------------------+-------------------------------+
+
+
+2.2 WHY YOU OMIT THE CLOSING TAG  (IMPORTANT INTERVIEW POINT)
+-------------------------------------------------------------
+In a file that contains ONLY PHP code (a class file, a config file, a function
+library), you must NOT write the closing ?> tag.
+
+REASON:
+Anything after ?> - even a single space or newline - is treated as output and
+sent to the browser immediately. That output is sent BEFORE any header() call
+that runs later, which produces:
+
+    Warning: Cannot modify header information - headers already sent by
+    (output started at /app/config.php:42)
+
+It also corrupts JSON APIs (a stray newline before the JSON body), breaks file
+downloads (a byte added to the file), and breaks redirects.
+
+    RULE:
+      Pure PHP file          -> open with <?php, never close it.
+      Mixed PHP + HTML file  -> tags open and close as needed.
+
+PSR-12 (the industry coding standard) makes this an explicit requirement.
+
+
+2.3 STATEMENTS AND SEMICOLONS
+-----------------------------
+Every PHP statement ends with a semicolon.
+
+    $name = 'Ravi';        // statement, needs ;
+    echo $name;            // statement, needs ;
+
+Exception: the last statement before a closing ?> may omit the semicolon,
+because ?> implies it. Do not rely on this - always write the semicolon.
+
+Blocks ({ }) do NOT take a semicolon after them:
+
+    if ($x) { ... }        // no semicolon after }
+    function f() { ... }   // no semicolon after }
+    class A { ... }        // no semicolon after }
+
+A missing semicolon usually produces a confusing error pointing to the NEXT
+line, because PHP keeps reading until it finds something invalid. Always check
+the line ABOVE the reported error line.
+
+
+2.4 OUTPUT: echo vs print vs print_r vs var_dump
+------------------------------------------------
+    +-----------+---------------------------------------+-------------------+
+    | Construct | What it does                          | Returns / Notes   |
+    +-----------+---------------------------------------+-------------------+
+    | echo      | Prints one or more strings.           | Returns nothing.  |
+    |           | echo $a, $b;  (comma is faster than . )| Slightly faster.  |
+    +-----------+---------------------------------------+-------------------+
+    | print     | Prints ONE string.                    | Returns 1, so it  |
+    |           |                                       | can be used in an |
+    |           |                                       | expression.       |
+    +-----------+---------------------------------------+-------------------+
+    | print_r   | Human-readable dump of arrays/objects.| Pass true as 2nd  |
+    |           |                                       | arg to return it  |
+    |           |                                       | as a string.      |
+    +-----------+---------------------------------------+-------------------+
+    | var_dump  | Dump WITH types and sizes. The best   | Returns nothing.  |
+    |           | debugging tool.                       | Debug only.       |
+    +-----------+---------------------------------------+-------------------+
+    | var_export| Dump as valid PHP code.               | Can return string.|
+    +-----------+---------------------------------------+-------------------+
+
+echo and print are language constructs, not functions - that is why they work
+without parentheses. This is a classic interview trivia question.
+
+
+2.5 COMMENTS
+------------
+    // single line comment            (preferred style)
+    # single line comment            (works, but rarely used in modern PHP)
+    /* multi
+       line comment */
+    /** DocBlock comment - used by IDEs, static analysis and documentation */
+
+DOCBLOCKS matter in real projects. They tell your IDE and tools like PHPStan
+what types to expect, especially for things the type system cannot express:
+
+    /**
+     * @param array<int, string> $names  List of user names
+     * @return array<string, int>        Name => name length
+     * @throws InvalidArgumentException  When the list is empty
+     */
+
+IMPORTANT: a comment ends at ?> too. Writing "// ignore this ?> more" will
+actually close the PHP block at ?>.
+
+
+2.6 CASE SENSITIVITY - THE EXACT RULES  (VERY COMMON TEST QUESTION)
+-------------------------------------------------------------------
+    +---------------------------------+-------------------+------------------+
+    | Element                         | Case sensitive?   | Example          |
+    +---------------------------------+-------------------+------------------+
+    | Variables                       | YES               | $name != $Name   |
+    | Object properties               | YES               | $o->id != $o->ID |
+    | Array keys (string keys)        | YES               | 'a' != 'A'       |
+    | Constants (by default)          | YES               | MAX != Max       |
+    +---------------------------------+-------------------+------------------+
+    | Function names                  | NO                | strlen = STRLEN  |
+    | Method names                    | NO                | getId = GETID    |
+    | Class names                     | NO                | User = user      |
+    | Interface / trait / enum names  | NO                |                  |
+    | Keywords (if, echo, class...)   | NO                | IF = if          |
+    | true / false / null             | NO                | TRUE = true      |
+    +---------------------------------+-------------------+------------------+
+
+MEMORY TRICK:
+    "Everything with a $ sign is case sensitive. Everything you declare with a
+     keyword (function/class) is not."
+
+WARNING FOR REAL PROJECTS:
+Even though class names are case insensitive to PHP, FILE names are case
+sensitive on Linux. A class User in user.php will load fine on Windows/XAMPP and
+fail in production on Linux. This is one of the most common "works on my
+machine" bugs. Always match the file name to the class name exactly (PSR-4
+requires it).
+
+
+2.7 EMBEDDING PHP IN HTML - THE TEMPLATE STYLE
+----------------------------------------------
+For views/templates, the alternative syntax is much easier to read than braces
+mixed with HTML:
+
+    NORMAL SYNTAX (hard to read in HTML)
+        <?php foreach ($users as $user) { ?>
+            <li><?php echo $user['name']; ?></li>
+        <?php } ?>
+
+    ALTERNATIVE SYNTAX (recommended for templates)
+        <?php foreach ($users as $user): ?>
+            <li><?= htmlspecialchars($user['name']) ?></li>
+        <?php endforeach; ?>
+
+Alternative syntax exists for if/endif, foreach/endforeach, for/endfor,
+while/endwhile and switch/endswitch. It is covered fully in file 12.
+
+
+--------------------------------------------------------------------------------
+3. REAL-TIME EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: THE BROKEN JSON API
+An API endpoint returns invalid JSON and the mobile app crashes. The cause is a
+blank line after ?> in an included config file. That newline is printed before
+the JSON, so the response body is "\n{"status":"ok"}" and json_decode() fails on
+the client. Removing the closing tag fixes it. This is a real, frequent bug.
+
+EXAMPLE 2: "HEADERS ALREADY SENT" ON LOGIN REDIRECT
+The login page calls header('Location: /dashboard.php') after checking the
+password, but PHP throws "headers already sent". A file included at the top had
+whitespace after ?>, so output had already started. HTTP headers must be sent
+before any body content, so the redirect fails and the user stays on the login
+page.
+
+EXAMPLE 3: DEPLOYMENT BREAKS ON LINUX
+A developer on XAMPP writes new Invoice() but names the file invoice.php while
+the autoloader expects Invoice.php. Windows ignores the case difference, so it
+works locally. The Linux production server cannot find the file and throws
+"Class Invoice not found". The team loses an hour on a case-sensitivity bug.
+
+EXAMPLE 4: TEMPLATES IN A REAL PROJECT
+Every PHP project renders views with short echo tags:
+    <h1><?= htmlspecialchars($product['title']) ?></h1>
+Note it is combined with htmlspecialchars() to prevent XSS. Real teams often
+define a helper e() so views stay short and safe:
+    <h1><?= e($product['title']) ?></h1>
+
+EXAMPLE 5: DOCBLOCKS DRIVING TOOLING
+In a professional codebase, DocBlocks are not decoration. PHPStan reads
+@param array<int, User> $users and reports a real bug when you pass an array of
+IDs instead. IDEs use the same information for autocompletion. Teams treat a
+missing or wrong DocBlock as a code review comment.
+
+
+--------------------------------------------------------------------------------
+4. USE CASES
+--------------------------------------------------------------------------------
+
+WHEN TO USE EACH TAG STYLE
+    <?php ... ?>   Everywhere. The only safe opening tag.
+    <?= ... ?>     Only inside view/template files, for printing one value.
+                   Do NOT use it for logic.
+    No closing ?>  Every pure-PHP file: classes, config, functions, bootstrap.
+
+WHEN TO USE EACH OUTPUT CONSTRUCT
+    echo        Normal output in application code and templates.
+    print       Almost never; only when you need a return value in an expression.
+    print_r     Quick look at an array structure while developing.
+    var_dump    Debugging when you need TYPES (is it "0" the string or 0 the int?).
+    var_export  When you need output that is valid PHP, e.g. generating a
+                config file or writing a cache file.
+
+WHEN TO USE EACH COMMENT STYLE
+    //          Explaining a single line or short block. Default choice.
+    /* */       Temporarily disabling a block while debugging.
+    /** */      DocBlocks on classes, methods and properties in real projects.
+
+WHEN NOT TO COMMENT
+    Do not write comments that repeat the code:
+        $i++;  // increment i          <- useless
+    Write comments that explain WHY, not WHAT:
+        // Stripe requires amounts in the smallest currency unit
+        $amount = $rupees * 100;
+
+
+--------------------------------------------------------------------------------
+5. CODE EXAMPLES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CODE 1 : CORRECT FILE STRUCTURE - PURE PHP FILE (NO CLOSING TAG)
+File: src/Money.php
+--------------------------------------------------------------------------------
+
+    <?php
+
+    declare(strict_types=1);
+
+    namespace App\Support;
+
+    /**
+     * Represents an amount of money in the smallest currency unit (paise).
+     *
+     * Storing money as an integer avoids float precision problems.
+     *
+     * @see 06-integers-floats-precision.txt
+     */
+    final class Money
+    {
+        /** @var int Amount in paise. 100 paise = 1 rupee. */
+        private int $paise;
+
+        public function __construct(int $paise)
+        {
+            $this->paise = $paise;
+        }
+
+        /**
+         * Build from a rupee value, e.g. 149.50 -> 14950 paise.
+         */
+        public static function fromRupees(float $rupees): self
+        {
+            // round() before casting: (int) truncates and would turn 14949.999
+            // into 14949 because of float representation.
+            return new self((int) round($rupees * 100));
+        }
+
+        public function format(): string
+        {
+            return 'Rs. ' . number_format($this->paise / 100, 2);
+        }
+    }
+
+    // NOTICE: no closing ?> tag here. This is intentional and required.
+
+--------------------------------------------------------------------------------
+CODE 2 : CORRECT TEMPLATE FILE (MIXED PHP + HTML)
+File: views/products.php
+--------------------------------------------------------------------------------
+
+    <?php
+    /** @var array<int, array{name: string, price: float, stock: int}> $products */
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>Products</title>
+    </head>
+    <body>
+        <h1>Products (<?= count($products) ?>)</h1>
+
+        <?php if ($products === []): ?>
+            <p>No products found.</p>
+        <?php else: ?>
+            <table>
+                <tr><th>Name</th><th>Price</th><th>Status</th></tr>
+                <?php foreach ($products as $product): ?>
+                    <tr>
+                        <td><?= htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8') ?></td>
+                        <td><?= number_format($product['price'], 2) ?></td>
+                        <td>
+                            <?php if ($product['stock'] > 0): ?>
+                                In stock (<?= $product['stock'] ?>)
+                            <?php else: ?>
+                                Out of stock
+                            <?php endif; ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </table>
+        <?php endif; ?>
+    </body>
+    </html>
+
+--------------------------------------------------------------------------------
+CODE 3 : CASE SENSITIVITY DEMONSTRATION
+File: case_test.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    class UserAccount
+    {
+        public string $userName = 'ravi';
+
+        public function getUserName(): string
+        {
+            return $this->userName;
+        }
+    }
+
+    define('MAX_LOGIN_ATTEMPTS', 3);
+
+    $account = new UserAccount();
+
+    // --- CASE INSENSITIVE (all of these work) ---
+    $a = new UserAccount();
+    $b = new useraccount();          // works: class names ignore case
+    $c = new USERACCOUNT();          // works
+    echo STRTOUPPER('ok'), "\n";     // works: function names ignore case
+    echo $account->GETUSERNAME(), "\n";  // works: method names ignore case
+    IF (TRUE) { echo "keywords ignore case\n"; }
+
+    // --- CASE SENSITIVE (these FAIL) ---
+    $name = 'Ravi';
+    // echo $Name;                   // Warning: Undefined variable $Name
+    // echo $account->UserName;      // Warning: Undefined property
+    // echo max_login_attempts;      // Error: Undefined constant
+
+    $data = ['status' => 'active'];
+    var_dump(isset($data['status']));   // bool(true)
+    var_dump(isset($data['Status']));   // bool(false)  <- different key
+
+    EXPECTED OUTPUT:
+        OK
+        ravi
+        keywords ignore case
+        bool(true)
+        bool(false)
+
+--------------------------------------------------------------------------------
+CODE 4 : WHAT A STRAY CLOSING TAG DOES
+Files: config.php and api.php
+--------------------------------------------------------------------------------
+
+    // ---------- config.php  (BROKEN VERSION) ----------
+    <?php
+    $config = ['db' => 'shop'];
+    ?>
+                                    <- this newline becomes OUTPUT
+
+    // ---------- api.php ----------
+    <?php
+    require 'config.php';                 // the stray newline is printed NOW
+    header('Content-Type: application/json');   // FAILS: headers already sent
+    echo json_encode(['status' => 'ok']);
+
+    ACTUAL OUTPUT (broken):
+        Warning: Cannot modify header information - headers already sent by
+        (output started at C:\xampp\htdocs\config.php:4) in api.php on line 3
+
+        {"status":"ok"}      <- preceded by a newline, so json_decode() fails
+
+    // ---------- config.php  (CORRECT VERSION) ----------
+    <?php
+    $config = ['db' => 'shop'];
+                                    <- file simply ends, no ?> at all
+
+    CORRECT OUTPUT:
+        {"status":"ok"}
+
+
+--------------------------------------------------------------------------------
+6. CODE EXPLANATION
+--------------------------------------------------------------------------------
+
+EXPLANATION OF CODE 1 (Money.php)
+---------------------------------
+    <?php on line 1, then a blank line
+        PSR-12 requires the opening tag on its own line. Nothing - not even a
+        space - may come before it, or that content is sent as output.
+
+    declare(strict_types=1);
+        Must be the first statement after the opening tag (only a docblock may
+        precede it). Enables strict type checking for this file.
+
+    namespace App\Support;
+        Declares the namespace, which the autoloader maps to a directory. See
+        file 16.
+
+    /** ... @see ... */
+        A DocBlock. IDEs show it on hover; static analysis tools read the tags.
+        @see creates a cross reference to related documentation.
+
+    final class Money
+        final means no other class may extend it. For a value object this is
+        correct: it prevents someone subclassing and breaking its guarantees.
+
+    private int $paise;
+        A typed property (PHP 7.4+). PHP will throw a TypeError if anything
+        tries to assign a non-integer, so the class can never hold bad data.
+
+    public static function fromRupees(float $rupees): self
+        A "named constructor" - a static factory method whose name explains what
+        the input means. self as the return type means "an instance of this
+        class". Much clearer than a constructor taking an ambiguous number.
+
+    (int) round($rupees * 100)
+        round() first, then cast. A plain (int) cast truncates toward zero, and
+        149.50 * 100 can be stored as 14949.999999 in binary floating point,
+        which would truncate to 14949 - losing one paisa. Rounding first avoids
+        a real money bug.
+
+    number_format($this->paise / 100, 2)
+        Formats with exactly 2 decimal places and thousands separators for
+        display only. The stored value stays an integer.
+
+    No ?> at the end
+        Guarantees this file can never emit accidental output.
+
+
+EXPLANATION OF CODE 2 (products.php template)
+---------------------------------------------
+    <?php /** @var ... */ ?>
+        A type hint for the IDE describing what variable the template expects.
+        It documents the contract between controller and view. The array{...}
+        syntax is a PHPStan "array shape" - it says exactly which keys exist.
+
+    <?= count($products) ?>
+        Short echo tag. Equivalent to <?php echo count($products); ?>.
+        The closing ?> is fine HERE because this is a template that intentionally
+        mixes HTML and PHP.
+
+    <?php if ($products === []): ?>
+        Alternative syntax. The colon opens the block and <?php endif; ?> closes
+        it. In HTML this is far easier to follow than matching { } across 30
+        lines. Comparing with === [] is an exact check for an empty array.
+
+    htmlspecialchars($product['name'], ENT_QUOTES, 'UTF-8')
+        CRITICAL FOR SECURITY. Converts < > " ' & into HTML entities so that a
+        product name like <script>alert(1)</script> is displayed as text instead
+        of being executed. ENT_QUOTES escapes both single and double quotes
+        (needed when the value goes inside an HTML attribute). 'UTF-8' states
+        the charset explicitly. Never echo user data in HTML without this.
+        See file 56.
+
+    Missing semicolon after endforeach?
+        No - <?php endforeach; ?> keeps its semicolon. Only endif/endforeach and
+        friends need it in this position.
+
+
+EXPLANATION OF CODE 3 (case_test.php)
+-------------------------------------
+    new useraccount() works
+        The class name is stored case-insensitively in PHP's internal class
+        table, so any casing resolves to the same class. It still hurts
+        readability and breaks PSR-4 file naming on Linux - never rely on it.
+
+    $account->GETUSERNAME()
+        Method names are also case insensitive. Again: works, but never do it.
+
+    echo $Name; fails
+        Variables are case sensitive because they are stored in the symbol table
+        by exact name. $name and $Name are two different variables.
+
+    isset($data['Status']) is false
+        String array keys are compared byte for byte, so 'status' and 'Status'
+        are different keys. This causes real bugs when reading API responses or
+        CSV headers with inconsistent casing. Normalise keys with
+        array_change_key_case() when the source is unreliable.
+
+    define('MAX_LOGIN_ATTEMPTS', 3)
+        Constants are case sensitive. (define() once accepted a third argument
+        for case-insensitive constants; that was deprecated in 7.3 and removed
+        in 8.0.)
+
+
+EXPLANATION OF CODE 4 (the stray tag)
+-------------------------------------
+    The newline after ?> is content OUTSIDE the PHP block, so PHP treats it
+    exactly like HTML and writes it to the output buffer.
+
+    Once ANY output has been written, the HTTP response headers are considered
+    sent, because headers must physically precede the body. Any later header(),
+    setcookie() or session_start() call therefore fails with
+    "headers already sent". The warning message helpfully names the file and
+    line where output started - always read that part, it points directly at
+    the culprit.
+
+    The fix is simply deleting ?> from every pure-PHP file. Configure your editor
+    to trim trailing whitespace to prevent the problem returning.
+
+
+--------------------------------------------------------------------------------
+7. INTERVIEW QUESTIONS
+--------------------------------------------------------------------------------
+
+============================= BEGINNER =============================
+
+Q1. What are the different PHP tags?
+ANSWER:
+    The standard tag <?php ... ?> and the short echo tag <?= ... ?>, which is
+    always available since PHP 5.4. The short open tag <? ... ?> depends on a
+    php.ini setting and should be avoided. ASP tags <% %> and <script
+    language="php"> were removed in PHP 7.
+WHY THIS IS CORRECT:
+    It separates what is safe to use from what merely still exists.
+
+Q2. What is the difference between echo and print?
+ANSWER:
+    Both output data and both are language constructs, not functions. echo can
+    take multiple comma-separated arguments and returns nothing. print takes
+    exactly one argument and returns 1, so it can be used inside an expression,
+    for example $ok = $x or print 'failed';. echo is marginally faster and is
+    the normal choice.
+WHY THIS IS CORRECT:
+    The "returns 1" detail is the actual difference the question is testing.
+
+Q3. Which parts of PHP are case sensitive?
+ANSWER:
+    Case sensitive: variables, object properties, string array keys, and
+    constants. Case insensitive: function names, method names, class names,
+    keywords, and true/false/null.
+WHY THIS IS CORRECT:
+    It is the complete rule, and it is the exact list asked in written tests.
+
+Q4. How do you write comments in PHP?
+ANSWER:
+    // and # for single-line comments, /* */ for multi-line, and /** */ for
+    DocBlocks which IDEs and static analysis tools read for type information.
+WHY THIS IS CORRECT:
+    It includes DocBlocks, which is the part professionals care about.
+
+
+=========================== INTERMEDIATE ===========================
+
+Q5. Why should you omit the closing ?> tag in pure PHP files?
+ANSWER:
+    Anything after ?>, including a single space or newline, is sent as output.
+    That premature output causes "headers already sent" errors, breaks
+    redirects and cookies, and corrupts JSON and file downloads. Omitting the
+    tag makes accidental output impossible. PSR-12 requires it.
+WHY THIS IS CORRECT:
+    It gives the mechanism (output before headers) plus the standard, not just
+    "it is a convention".
+
+Q6. What causes "Cannot modify header information - headers already sent"?
+ANSWER:
+    Something wrote to the output before a header(), setcookie() or
+    session_start() call. Usual causes: whitespace after ?>, a BOM at the start
+    of a file, an echo or var_dump left in, or a PHP warning that was displayed.
+    The warning message names the file and line where output started - fix that
+    location. Output buffering (ob_start) can hide the symptom but is not the
+    real fix.
+WHY THIS IS CORRECT:
+    It lists the actual causes in order of frequency and points to the built-in
+    diagnostic information in the message.
+
+Q7. Your class works on your Windows machine but throws "Class not found" on the
+    Linux server. Why?
+ANSWER:
+    Class names are case insensitive in PHP, but file names are case sensitive
+    on Linux and not on Windows. If the class is User and the file is user.php,
+    the PSR-4 autoloader looks for User.php, which does not exist on Linux. The
+    fix is to name the file exactly like the class.
+WHY THIS IS CORRECT:
+    It correctly separates PHP's case rules from the filesystem's case rules,
+    which is the real cause.
+
+Q8. When would you use var_dump instead of print_r?
+ANSWER:
+    When types matter. print_r shows values only, so the string "0", the integer
+    0 and false all look similar or empty. var_dump shows the exact type and
+    length: string(1) "0" versus int(0) versus bool(false). That distinction is
+    essential when debugging comparison and type-juggling bugs.
+WHY THIS IS CORRECT:
+    It names the concrete debugging situation where the difference matters.
+
+
+============================= ADVANCED =============================
+
+Q9. Is echo a function? Can you write echo()?
+ANSWER:
+    echo is a language construct, not a function. You can write echo('hi')
+    because the parentheses are simply grouping the expression, but you cannot
+    write echo with multiple arguments in parentheses, and you cannot use it as
+    a callable, for example array_map('echo', $items) fails. print is also a
+    construct but behaves like a function returning 1.
+WHY THIS IS CORRECT:
+    It explains why the parentheses appear to work and gives the case that
+    proves it is not a function.
+
+Q10. What is a BOM and how can it break a PHP application?
+ANSWER:
+     A Byte Order Mark is an invisible sequence (EF BB BF for UTF-8) some
+     editors add at the start of a file. PHP sees it as output before the <?php
+     tag, which triggers "headers already sent" and can add stray characters to
+     JSON or downloads. The fix is to save all PHP files as "UTF-8 without BOM".
+WHY THIS IS CORRECT:
+     It explains an invisible cause that is impossible to find by reading code -
+     exactly why it is asked as an advanced question.
+
+Q11. Why does PHP report a syntax error on a line that looks correct?
+ANSWER:
+     Because the parser reports where it discovered the problem, not where the
+     problem is. A missing semicolon or unclosed brace on an earlier line makes
+     PHP continue reading until the next token cannot fit the grammar. Always
+     inspect the lines above the reported one, and note that "unexpected end of
+     file" almost always means an unclosed { or a missing ?> pair in a template.
+WHY THIS IS CORRECT:
+     It explains parser behaviour and gives the practical debugging rule.
+
+
+========================== SCENARIO BASED ==========================
+
+Q12. Your JSON API returns data that the mobile app cannot parse, but the JSON
+     itself looks valid in the browser. How do you debug it?
+ANSWER:
+     Suspect extra output before or after the JSON. Inspect the raw response
+     with curl -i rather than the browser, which may hide leading whitespace.
+     Look for whitespace after ?> in included files, a BOM, or a displayed PHP
+     warning appended to the body. Fix by removing closing tags from pure PHP
+     files, saving without BOM, and setting display_errors=Off with
+     log_errors=On in production so warnings never reach the response body.
+WHY THIS IS CORRECT:
+     It uses a tool that shows the raw bytes and then lists causes in order of
+     likelihood.
+
+Q13. A team member wants to use <? instead of <?php because it is shorter. What
+     do you say?
+ANSWER:
+     Short open tags depend on the short_open_tag ini directive. If the code
+     moves to a server where it is off, every PHP block is printed as plain
+     text to the browser - which can also expose source code including database
+     credentials. It also conflicts with XML declarations (<?xml). PSR-12
+     forbids it. The short ECHO tag <?= is different: it is always available and
+     is fine in templates.
+WHY THIS IS CORRECT:
+     It gives the portability and security reason, and correctly distinguishes
+     <? from <?=, which many candidates confuse.
+
+
+====================== REAL-TIME PROJECT QUESTIONS ======================
+
+Q14. How does your team enforce these rules in a real project?
+ANSWER:
+     With tooling rather than reminders. PHP_CodeSniffer or PHP CS Fixer with
+     the PSR-12 ruleset automatically flags closing tags in pure PHP files,
+     wrong indentation and short open tags. The editor is configured to trim
+     trailing whitespace and save as UTF-8 without BOM. Both run in CI so a pull
+     request fails before review if the style is wrong.
+WHY THIS IS CORRECT:
+     Real teams automate conventions; answering with tooling shows professional
+     experience.
+
+Q15. In a project with templates, how do you keep views safe and readable?
+ANSWER:
+     Use alternative syntax (if/endif, foreach/endforeach) so HTML stays
+     readable, use <?= for output, and escape every dynamic value with
+     htmlspecialchars($v, ENT_QUOTES, 'UTF-8') - usually wrapped in a short
+     helper such as e(). Keep logic out of templates: the controller prepares
+     the data, the view only displays it. In larger projects a template engine
+     like Twig escapes automatically, which removes the risk of forgetting.
+WHY THIS IS CORRECT:
+     It combines readability with the XSS rule, which is what a reviewer would
+     actually check in a view file.
+
+
+--------------------------------------------------------------------------------
+8. COMMON MISTAKES
+--------------------------------------------------------------------------------
+
+MISTAKE 1: Leaving ?> at the end of a class or config file.
+    Consequence: headers already sent, broken JSON, broken downloads.
+    Fix: delete it. Never add it to a pure PHP file.
+
+MISTAKE 2: Whitespace or a blank line BEFORE <?php on line 1.
+    Same consequence as above. The opening tag must be the very first bytes.
+
+MISTAKE 3: Saving files as "UTF-8 with BOM".
+    Invisible characters become output. Save as UTF-8 without BOM.
+
+MISTAKE 4: Using <? short open tags.
+    Breaks on servers where short_open_tag is Off and can expose source code.
+
+MISTAKE 5: Assuming array keys are case insensitive.
+    $row['Name'] and $row['name'] are different keys. A frequent bug when
+    reading CSV headers or third-party API responses.
+
+MISTAKE 6: Relying on case-insensitive class names.
+    Works on Windows, fails on Linux. Match file name to class name exactly.
+
+MISTAKE 7 (SECURITY): Echoing user input in a template without escaping.
+    <?= $comment ?> is a stored XSS vulnerability.
+    Always <?= htmlspecialchars($comment, ENT_QUOTES, 'UTF-8') ?>.
+
+MISTAKE 8 (SECURITY): Leaving var_dump/print_r debug output in production code.
+    It leaks internal structure, file paths and sometimes credentials.
+
+MISTAKE 9: Writing a comment containing ?> inside a PHP block.
+    // TODO: fix this ?> actually terminates the PHP block at ?>.
+
+MISTAKE 10: Comment noise. "// increment counter" above $i++ adds nothing.
+    Comment the WHY (business rule, workaround, external requirement).
+
+
+--------------------------------------------------------------------------------
+9. BEST PRACTICES
+--------------------------------------------------------------------------------
+
+ 1. Start every file with <?php on line 1, followed by declare(strict_types=1);
+ 2. Never write ?> in a pure PHP file.
+ 3. Save all files as UTF-8 without BOM; configure the editor to trim trailing
+    whitespace on save.
+ 4. Use <?= only in templates, and always with escaping.
+ 5. Use alternative syntax (: / endif) inside HTML templates.
+ 6. Follow PSR-12: 4 spaces for indentation (never tabs), opening brace on a new
+    line for classes and methods, same line for control structures.
+ 7. Match file names to class names exactly, including case.
+ 8. Write DocBlocks on public classes and methods, especially for array shapes
+    that the type system cannot express.
+ 9. Comment WHY, not WHAT. Delete commented-out code; version control keeps it.
+10. Use var_dump while debugging, but remove it before committing. Prefer a
+    logger or Xdebug in real projects.
+11. Enforce all of the above with PHP CS Fixer / PHP_CodeSniffer in CI.
+
+
+--------------------------------------------------------------------------------
+10. IMPORTANT NOTES (QUICK REVISION)
+--------------------------------------------------------------------------------
+
+KEY POINTS TO REMEMBER
+    - <?php is the only tag to use; <?= is allowed in templates.
+    - NEVER close a pure PHP file with ?>. Whitespace after it becomes output.
+    - Output before headers = "headers already sent".
+    - Case sensitive: variables, properties, array keys, constants.
+      Case insensitive: functions, methods, classes, keywords, true/false/null.
+    - File names ARE case sensitive on Linux even though class names are not.
+    - echo and print are language constructs, not functions. print returns 1.
+    - var_dump shows types; print_r does not.
+
+IMPORTANT SYNTAX
+    <?php ... ?>                    standard tag
+    <?= $value ?>                   short echo (template only)
+    declare(strict_types=1);        first statement of every file
+    // ...    # ...    /* ... */    comments
+    /** @param ... @return ... */   DocBlock
+    <?php if ($x): ?> ... <?php endif; ?>       alternative syntax
+
+FREQUENTLY USED FUNCTIONS
+    echo / print                    output
+    print_r($v) / print_r($v, true) readable dump / return as string
+    var_dump($v)                    dump with types (best for debugging)
+    var_export($v, true)            dump as valid PHP code
+    htmlspecialchars($v, ENT_QUOTES, 'UTF-8')   escape output (mandatory)
+    number_format($n, 2)            format a number for display
+    array_change_key_case($a, CASE_LOWER)  normalise inconsistent array keys
+
+COMMON INTERVIEW POINTS
+    - "Why omit ?>" -> premature output -> headers already sent.
+    - "What is case sensitive in PHP?" -> the $ rule.
+    - "echo vs print" -> multiple args vs returns 1.
+    - "Why does it work locally but not on the server?" -> file name case.
+
+QUICK REVISION CHECKLIST
+    [ ] I know all valid PHP tags and which ones are removed.
+    [ ] I can explain in one sentence why ?> is omitted.
+    [ ] I can list what is and is not case sensitive.
+    [ ] I know what causes "headers already sent" and how to find it.
+    [ ] I always escape output in templates with htmlspecialchars.
+    [ ] I know the difference between var_dump, print_r and var_export.
+
+
+--------------------------------------------------------------------------------
+11. PRACTICAL EXERCISES
+--------------------------------------------------------------------------------
+
+EXERCISE 1 (BASIC)
+    Create two files: config.php containing an array and index.php that includes
+    it and calls header('Content-Type: text/plain') then echoes a value.
+    (a) Put ?> plus a blank line at the end of config.php and run it - observe
+        the "headers already sent" warning and read which file/line it names.
+    (b) Remove the closing tag and run it again.
+    Then write down, in one sentence, what changed and why.
+    GOAL: experience the most common PHP error on purpose so you recognise it
+    instantly later.
+
+EXERCISE 2 (INTERMEDIATE)
+    Write case_experiment.php that proves the case-sensitivity rules:
+      - Call one built-in function in three different casings.
+      - Instantiate one class in three different casings.
+      - Try to read a variable with the wrong casing and capture the warning.
+      - Create an array with the key 'email' and test isset() for 'Email'.
+    Print a small report table of what worked and what failed.
+    Then write a helper function normaliseKeys(array $row): array that
+    lowercases every key, and test it with a row that mixes 'Name' and 'EMAIL'.
+    GOAL: turn a memorised rule into something you have proved yourself, plus a
+    utility you will actually reuse when parsing CSV files.
+
+EXERCISE 3 (REAL-TIME PROJECT STYLE)
+    Build a minimal but correct view layer:
+      - src/helpers.php  defining e(string $v): string that wraps
+        htmlspecialchars with ENT_QUOTES and UTF-8. No closing tag.
+      - views/user_list.php  a template that receives $users (array of arrays
+        with name, email, role) and renders an HTML table using alternative
+        syntax and <?= e(...) ?> for every value.
+      - index.php  that defines the data, includes the helper, and renders the
+        view using output buffering: ob_start(); include the view;
+        $html = ob_get_clean(); then echo $html.
+      - Include one malicious value in the data, such as
+        '<script>alert("xss")</script>', and confirm it is displayed as text and
+        not executed.
+    GOAL: this is exactly how a real MVC view layer works, and it makes the XSS
+    defence concrete rather than theoretical.
+
+================================================================================
+END OF TOPIC 02
+NEXT: 03-variables-and-scope.txt
+================================================================================

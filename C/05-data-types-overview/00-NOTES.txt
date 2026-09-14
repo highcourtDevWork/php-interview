@@ -1,0 +1,1058 @@
+================================================================================
+TOPIC 05 : DATA TYPES OVERVIEW & TYPE CHECKING
+================================================================================
+
+--------------------------------------------------------------------------------
+1. INTRODUCTION
+--------------------------------------------------------------------------------
+
+WHAT IS THIS TOPIC?
+PHP has a fixed set of data types. This topic covers every type PHP supports,
+how to check what type a value actually is, and the practical differences
+between the checking functions.
+
+WHY IS IT IMPORTANT?
+- "How many data types does PHP have?" is asked in almost every entry-level
+  interview and written test.
+- Most PHP bugs are type bugs in disguise: "0" from a form is a string, not an
+  integer; an empty result is [] not null; json_decode gives you either an array
+  or an object depending on one argument.
+- Correct type checking is a security matter. Validating that an id is really an
+  integer before using it is part of defending against injection and logic
+  abuse.
+
+
+--------------------------------------------------------------------------------
+2. COMPLETE EXPLANATION (BASIC -> ADVANCED)
+--------------------------------------------------------------------------------
+
+2.1 THE COMPLETE LIST OF PHP TYPES
+----------------------------------
+PHP has 8 primary types, grouped into three categories.
+
+    SCALAR TYPES (a single value)
+    +---------+------------------------------------------------------------+
+    | bool    | true or false. Only two possible values.                   |
+    | int     | Whole number. 64-bit on modern systems:                     |
+    |         | -9223372036854775808 to 9223372036854775807                |
+    | float   | Decimal number, also called double. 64-bit IEEE 754.        |
+    | string  | A sequence of BYTES (not characters - important for UTF-8). |
+    +---------+------------------------------------------------------------+
+
+    COMPOUND TYPES (contain multiple values)
+    +---------+------------------------------------------------------------+
+    | array   | An ORDERED HASH MAP. Both a list and a dictionary.         |
+    | object  | An instance of a class.                                    |
+    +---------+------------------------------------------------------------+
+
+    SPECIAL TYPES
+    +---------+------------------------------------------------------------+
+    | null    | "No value". A variable with null holds nothing.            |
+    | resource| A handle to an external thing: an open file, a database     |
+    |         | connection, an image. Legacy - being replaced by objects.   |
+    +---------+------------------------------------------------------------+
+
+PSEUDO-TYPES used in documentation and type declarations (not real storage
+types, but you must know them):
+    mixed     any type at all (PHP 8.0+ as a real declaration)
+    callable  something that can be called: a function name, closure, [obj,'m']
+    iterable  array OR an object implementing Traversable
+    void      a return type meaning "returns nothing" (7.1+)
+    never     a return type meaning "never returns" - always throws or exits (8.1+)
+    self / static / parent   class-related return and parameter types
+
+ANSWER TO THE INTERVIEW QUESTION:
+"PHP has 8 data types: four scalar (bool, int, float, string), two compound
+(array, object), and two special (null, resource)."
+
+
+2.2 EACH TYPE IN DETAIL
+-----------------------
+BOOL
+    $isActive = true;   $isDeleted = false;
+    Written in any case (TRUE, True, true) but lowercase is the standard.
+    Only true and false. Everything else converts to one of them (see file 09).
+
+INT
+    $count = 42;  $negative = -7;  $big = 1_000_000;   // _ is a separator (7.4+)
+    Different bases:
+        $decimal = 255;      $hex = 0xFF;      // 255
+        $octal   = 0o377;    $binary = 0b11111111;   // 255  (0o form is 8.1+)
+    PHP_INT_MAX  = largest int, PHP_INT_MIN, PHP_INT_SIZE = 8 bytes.
+    OVERFLOW: an int that exceeds PHP_INT_MAX automatically becomes a FLOAT.
+    There is no unsigned int in PHP.
+
+FLOAT
+    $price = 99.99;   $sci = 1.2e3;   // 1200.0
+    Precision is about 14-15 significant digits.
+    NEVER use float for money - see file 06 for the full explanation.
+    Special values: INF, -INF, NAN. PHP_FLOAT_EPSILON for safe comparisons.
+
+STRING
+    A string is a sequence of BYTES, not characters. strlen('é') returns 2
+    because é is two bytes in UTF-8. Use mb_strlen() for characters.
+    Maximum size is limited by memory_limit (and 2 GB per string).
+    Four ways to write one: single quotes, double quotes, heredoc, nowdoc
+    (file 23).
+
+ARRAY
+    PHP arrays are ordered hash maps: keys may be integers or strings, and
+    insertion order is preserved.
+        $list  = [10, 20, 30];                 // keys 0,1,2
+        $assoc = ['name' => 'Ravi', 'age' => 25];
+        $mixed = [0 => 'a', 'key' => 'b'];     // both at once, allowed
+    A "list" is an array with sequential integer keys starting at 0 -
+    array_is_list() tests for it (8.1+). Full detail in file 17.
+
+OBJECT
+    An instance of a class, created with new. Holds properties and methods, and
+    variables hold a HANDLE to it (file 04).
+        $user = new User('Ravi');
+    stdClass is PHP's generic empty class, produced by casting an array to an
+    object or by json_decode() without the associative flag.
+
+NULL
+    The only value of the null type. A variable is null when:
+        - you assign null explicitly,
+        - it has been unset(),
+        - (historically) it was never set - though reading an unset variable now
+          raises a warning and evaluates as null.
+    IMPORTANT: null is not the same as 0, '' or false, even though all four are
+    falsy. Use === null or is_null() to test precisely.
+
+RESOURCE
+    A handle to something outside PHP:
+        $fp = fopen('data.txt', 'r');       // resource (stream)
+        $img = imagecreate(100, 100);       // resource (gd) - now GdImage object
+    Modern PHP is converting resources into real objects: CurlHandle (8.0),
+    GdImage (8.0), OpenSSL objects (8.0). PDO was always an object. So the
+    correct statement today is: "resource is a legacy type being replaced by
+    objects".
+
+
+2.3 CHECKING TYPES - THE THREE APPROACHES
+-----------------------------------------
+(A) gettype() - the OLD way
+    Returns a string, but with historical names that surprise people:
+        gettype(1)      -> "integer"    (NOT "int")
+        gettype(1.5)    -> "double"     (NOT "float")
+        gettype(true)   -> "boolean"    (NOT "bool")
+        gettype(null)   -> "NULL"       (uppercase!)
+        gettype([])     -> "array"
+        gettype($obj)   -> "object"     (does not tell you WHICH class)
+    Because the names do not match the type declarations you write in code,
+    gettype() is discouraged for new code.
+
+(B) get_debug_type() - the MODERN way (PHP 8.0+) - PREFER THIS
+        get_debug_type(1)     -> "int"
+        get_debug_type(1.5)   -> "float"
+        get_debug_type(true)  -> "bool"
+        get_debug_type(null)  -> "null"
+        get_debug_type([])    -> "array"
+        get_debug_type($user) -> "App\Models\User"    <- the actual class name!
+    The names match what you write in type declarations, and it names the class
+    for objects. This is what you should use in error messages.
+
+(C) is_*() functions - the CHECK way (use these in conditions)
+        is_int($v)      is_integer / is_long are aliases
+        is_float($v)    is_double is an alias
+        is_string($v)
+        is_bool($v)
+        is_array($v)
+        is_object($v)
+        is_null($v)
+        is_numeric($v)  int, float, OR a numeric string like "12.5"
+        is_callable($v)
+        is_iterable($v) array or Traversable
+        is_scalar($v)   int, float, string or bool (NOT array/object/null)
+        is_countable($v) array or Countable
+    These return bool, so they read naturally in an if.
+
+(D) var_dump() - the DEBUG way
+    Prints type, size and value. The most informative tool while debugging:
+        var_dump("0");   ->  string(1) "0"
+        var_dump(0);     ->  int(0)
+        var_dump(0.0);   ->  float(0)
+        var_dump(false); ->  bool(false)
+        var_dump(null);  ->  NULL
+        var_dump([1,2]); ->  array(2) { [0]=> int(1) [1]=> int(2) }
+    print_r() shows values only and cannot distinguish "0" from 0 - which is
+    exactly the distinction you usually need.
+
+
+2.4 CHECKING THE TYPE OF AN OBJECT
+----------------------------------
+    $user instanceof User            true for User and its subclasses
+    $user instanceof JsonSerializable  works for interfaces too
+    get_class($user)                 exact class name (no inheritance check)
+    $user::class                     same thing, PHP 8.0+, preferred
+    get_parent_class($user)
+    is_a($user, User::class)
+    is_subclass_of($user, User::class)   true only for SUBclasses, not the class itself
+    method_exists($user, 'save')
+    property_exists($user, 'email')
+
+PREFER instanceof over get_class() comparisons, because instanceof respects
+inheritance and interfaces, which is what polymorphic code needs:
+
+    if (get_class($x) === Admin::class)   // brittle: fails for subclasses
+    if ($x instanceof Admin)              // correct
+
+
+2.5 WHY TYPES MATTER IN REAL INPUT HANDLING
+-------------------------------------------
+EVERYTHING that arrives from outside PHP is a STRING (or an array of strings):
+    $_GET, $_POST, $_COOKIE   -> strings
+    Database results via PDO  -> often strings unless configured otherwise
+    CSV files, API bodies     -> strings
+    getenv()                  -> strings
+
+So this is always false:
+    if ($_GET['id'] === 1)        // '1' === 1 is false - different types
+
+And this is the correct pattern:
+    $id = filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT);
+    if ($id === false || $id === null) {
+        // invalid or missing - reject it
+    }
+
+filter_var / filter_input are the standard way to validate AND convert input in
+one step (see file 49).
+
+TYPE DECLARATIONS make your own functions safe:
+    function getUser(int $id): ?User { ... }
+With declare(strict_types=1), passing "5" throws a TypeError instead of silently
+converting - which is what you want, because it exposes the bug at the boundary
+instead of deep inside your code. See file 31.
+
+
+--------------------------------------------------------------------------------
+3. REAL-TIME EXAMPLES
+--------------------------------------------------------------------------------
+
+EXAMPLE 1: THE FORM CHECKBOX THAT IS ALWAYS TRUE
+An unchecked checkbox is simply absent from $_POST, and a checked one sends the
+string "on" or "0" depending on the HTML. Code like
+    $isActive = $_POST['active'];
+stores a STRING. Later if ($isActive) is true even for the string "0"? No -
+"0" is falsy, but "false" and "off" are truthy. The professional fix is an
+explicit conversion at the boundary:
+    $isActive = isset($_POST['active']) && $_POST['active'] !== '0';
+or filter_input(INPUT_POST, 'active', FILTER_VALIDATE_BOOL).
+
+EXAMPLE 2: json_decode RETURNING TWO DIFFERENT TYPES
+    json_decode($body)        -> stdClass object    ($data->name)
+    json_decode($body, true)  -> associative array  ($data['name'])
+A whole team can lose an hour because one developer used the flag and another
+did not. Real projects standardise on one form, usually
+json_decode($body, true, 512, JSON_THROW_ON_ERROR).
+
+EXAMPLE 3: DATABASE IDS ARRIVING AS STRINGS
+With PDO and emulated prepares, MySQL integer columns often come back as
+strings: ['id' => '42']. Strict comparison $row['id'] === 42 then fails
+silently. Real fix: set PDO::ATTR_EMULATE_PREPARES to false and use native
+types, or cast explicitly when mapping rows into objects. See file 53.
+
+EXAMPLE 4: THE "NOT FOUND" RETURN VALUE
+A repository method returns ?User - either a User or null. Calling
+$user->getName() on null throws "Call to a member function on null", one of the
+most common production fatal errors. The nullable return type documents the
+possibility, and the caller must handle it:
+    $user = $repo->find($id);
+    if ($user === null) { ... }
+    // or  $name = $repo->find($id)?->getName() ?? 'Guest';
+
+EXAMPLE 5: TYPE ERRORS IN ERROR MESSAGES
+Modern applications write errors like:
+    throw new InvalidArgumentException(
+        'Expected int, got ' . get_debug_type($value)
+    );
+Using get_debug_type() instead of gettype() means the message says "string" or
+"App\Models\User" rather than "double" or a useless "object", which makes the
+log immediately actionable.
+
+
+--------------------------------------------------------------------------------
+4. USE CASES
+--------------------------------------------------------------------------------
+
+WHEN TO USE EACH CHECKING TOOL
+    is_*() functions   In conditions, inside application logic.
+                       if (!is_array($rows)) { ... }
+    get_debug_type()   In exception and log messages, and when you need the
+                       class name of an object.
+    gettype()          Only when maintaining old code that already uses it.
+    var_dump()         Debugging only, never in committed code.
+    instanceof         Checking whether an object satisfies a class/interface.
+    filter_var()       Validating and converting EXTERNAL input.
+
+WHEN TO USE WHICH TYPE
+    int      ids, counts, quantities, timestamps, money in the smallest unit.
+    float    measurements, percentages, scientific values. NEVER money.
+    string   text, and also identifiers that are not arithmetic (phone numbers,
+             postal codes, order references - never store these as int).
+    bool     true/false flags only. Do not use 'Y'/'N' or 1/0 in new code.
+    array    lists and key-value data.
+    object   anything with behaviour, and anything with a fixed shape (prefer a
+             typed class over an associative array for domain data).
+    null     "absent" or "not applicable". Do not use it to mean 0 or ''.
+
+WHEN NOT TO USE null
+    - As a default for a collection. Use [] so callers can loop safely.
+    - As "unknown yet" on a required property. Use a typed uninitialised
+      property or require it in the constructor instead.
+    - Returning null for errors when an exception describes the failure better.
+
+WHEN TO PREFER AN OBJECT OVER AN ARRAY
+    Use an array for genuinely dynamic key-value data. Use a class with typed
+    properties (or a readonly DTO) when the shape is known - you get IDE
+    autocompletion, type errors at the boundary, and no "undefined array key"
+    surprises.
+
+
+--------------------------------------------------------------------------------
+5. CODE EXAMPLES
+--------------------------------------------------------------------------------
+
+--------------------------------------------------------------------------------
+CODE 1 : EVERY TYPE, AND HOW EACH CHECKING FUNCTION REPORTS IT
+File: types_overview.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    final class Product
+    {
+        public function __construct(public readonly string $name)
+        {
+        }
+    }
+
+    $file = fopen('php://memory', 'r');       // a resource
+
+    $values = [
+        'bool'     => true,
+        'int'      => 42,
+        'float'    => 99.99,
+        'string'   => 'hello',
+        'array'    => ['a', 'b'],
+        'object'   => new Product('Pen'),
+        'stdClass' => (object) ['x' => 1],
+        'null'     => null,
+        'resource' => $file,
+        'closure'  => fn(int $n): int => $n * 2,
+    ];
+
+    printf("%-10s | %-10s | %-22s | %s\n", 'LABEL', 'gettype', 'get_debug_type', 'is_* true for');
+    echo str_repeat('-', 90) . PHP_EOL;
+
+    foreach ($values as $label => $value) {
+        $checks = [];
+        foreach (['is_bool','is_int','is_float','is_string','is_array','is_object',
+                  'is_null','is_numeric','is_callable','is_scalar','is_iterable'] as $fn) {
+            if ($fn($value)) {
+                $checks[] = substr($fn, 3);      // strip the "is_" prefix
+            }
+        }
+        printf(
+            "%-10s | %-10s | %-22s | %s\n",
+            $label,
+            gettype($value),
+            get_debug_type($value),
+            implode(', ', $checks) ?: '-'
+        );
+    }
+
+    fclose($file);
+
+    EXPECTED OUTPUT:
+    LABEL      | gettype    | get_debug_type         | is_* true for
+    ------------------------------------------------------------------------------
+    bool       | boolean    | bool                   | bool, scalar
+    int        | integer    | int                    | int, numeric, scalar
+    float      | double     | float                  | float, numeric, scalar
+    string     | string     | string                 | string, scalar
+    array      | array      | array                  | array, iterable
+    object     | object     | Product                | object
+    stdClass   | object     | stdClass               | object
+    null       | NULL       | null                   | null
+    resource   | resource   | resource (stream)      | -
+    closure    | object     | Closure                | object, callable
+
+
+--------------------------------------------------------------------------------
+CODE 2 : WHY var_dump BEATS print_r WHEN DEBUGGING TYPES
+File: debug_types.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    $values = [0, '0', 0.0, false, null, '', [], 'false'];
+
+    foreach ($values as $value) {
+        echo str_pad(var_export($value, true), 10);   // the literal PHP form
+        echo ' | var_dump: ';
+        var_dump($value);                             // type + value
+    }
+
+    echo PHP_EOL . 'print_r cannot tell these apart:' . PHP_EOL;
+    foreach ([0, '0', false, null, ''] as $value) {
+        echo '[' . print_r($value, true) . ']' . PHP_EOL;
+    }
+
+    EXPECTED OUTPUT:
+        0          | var_dump: int(0)
+        '0'        | var_dump: string(1) "0"
+        0.0        | var_dump: float(0)
+        false      | var_dump: bool(false)
+        NULL       | var_dump: NULL
+        ''         | var_dump: string(0) ""
+        array (    | var_dump: array(0) {
+        )          | }
+        'false'    | var_dump: string(5) "false"
+
+        print_r cannot tell these apart:
+        [0]
+        [0]
+        []
+        []
+        []
+
+
+--------------------------------------------------------------------------------
+CODE 3 : VALIDATING EXTERNAL INPUT PROPERLY (REAL PATTERN)
+File: validate_input.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    /**
+     * Everything in $_GET/$_POST is a string. This converts and validates in
+     * one step, returning typed values or a list of errors.
+     *
+     * @param array<string, mixed> $input
+     * @return array{data: array<string, mixed>, errors: array<int, string>}
+     */
+    function validateProductInput(array $input): array
+    {
+        $errors = [];
+        $data   = [];
+
+        // INT: FILTER_VALIDATE_INT returns the int, or false if invalid
+        $id = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
+        if ($id === false || $id <= 0) {
+            $errors[] = 'id must be a positive integer';
+        } else {
+            $data['id'] = $id;
+        }
+
+        // STRING: trim, then check it is non-empty after trimming
+        $name = trim((string) ($input['name'] ?? ''));
+        if ($name === '') {
+            $errors[] = 'name is required';
+        } else {
+            $data['name'] = $name;
+        }
+
+        // FLOAT: FILTER_VALIDATE_FLOAT accepts "99.99" and 99.99
+        $price = filter_var($input['price'] ?? null, FILTER_VALIDATE_FLOAT);
+        if ($price === false || $price < 0) {
+            $errors[] = 'price must be a number >= 0';
+        } else {
+            $data['price'] = $price;
+        }
+
+        // BOOL: FILTER_VALIDATE_BOOL understands "1","true","on","yes"
+        // NULL_ON_FAILURE makes it return null (not false) for invalid input,
+        // so we can tell "invalid" apart from "false".
+        $active = filter_var(
+            $input['active'] ?? false,
+            FILTER_VALIDATE_BOOL,
+            FILTER_NULL_ON_FAILURE
+        );
+        $data['active'] = $active ?? false;
+
+        return ['data' => $data, 'errors' => $errors];
+    }
+
+    // Simulating $_POST - note EVERY value is a string, as it would really be
+    $post = ['id' => '42', 'name' => '  Blue Pen  ', 'price' => '99.99', 'active' => 'on'];
+    $result = validateProductInput($post);
+    var_dump($result['data']);
+
+    $bad = ['id' => 'abc', 'name' => '   ', 'price' => '-5'];
+    print_r(validateProductInput($bad)['errors']);
+
+    EXPECTED OUTPUT:
+        array(4) {
+          ["id"]=>     int(42)
+          ["name"]=>   string(8) "Blue Pen"
+          ["price"]=>  float(99.99)
+          ["active"]=> bool(true)
+        }
+        Array
+        (
+            [0] => id must be a positive integer
+            [1] => name is required
+            [2] => price must be a number >= 0
+        )
+
+
+--------------------------------------------------------------------------------
+CODE 4 : CHECKING OBJECT TYPES CORRECTLY
+File: object_types.php
+--------------------------------------------------------------------------------
+
+    <?php
+    declare(strict_types=1);
+
+    interface Payable
+    {
+        public function amount(): int;
+    }
+
+    class Invoice implements Payable
+    {
+        public function __construct(private int $paise)
+        {
+        }
+
+        public function amount(): int
+        {
+            return $this->paise;
+        }
+    }
+
+    final class RecurringInvoice extends Invoice
+    {
+    }
+
+    function describe(object $item): string
+    {
+        return sprintf(
+            "%-18s class=%-18s instanceof Invoice=%s  instanceof Payable=%s",
+            get_debug_type($item),
+            $item::class,
+            $item instanceof Invoice ? 'yes' : 'no ',
+            $item instanceof Payable ? 'yes' : 'no '
+        );
+    }
+
+    echo describe(new Invoice(1000))          . PHP_EOL;
+    echo describe(new RecurringInvoice(2000)) . PHP_EOL;
+    echo describe(new stdClass())             . PHP_EOL;
+
+    // WRONG: breaks for subclasses
+    $item = new RecurringInvoice(2000);
+    var_dump($item::class === Invoice::class);     // false - misses the subclass
+    // RIGHT:
+    var_dump($item instanceof Invoice);            // true
+
+    EXPECTED OUTPUT:
+        Invoice            class=Invoice            instanceof Invoice=yes  instanceof Payable=yes
+        RecurringInvoice   class=RecurringInvoice   instanceof Invoice=yes  instanceof Payable=yes
+        stdClass           class=stdClass           instanceof Invoice=no   instanceof Payable=no
+        bool(false)
+        bool(true)
+
+
+--------------------------------------------------------------------------------
+6. CODE EXPLANATION
+--------------------------------------------------------------------------------
+
+EXPLANATION OF CODE 1 (types_overview.php)
+------------------------------------------
+    fopen('php://memory', 'r')
+        php://memory is a built-in stream that lives in RAM. It is used here
+        purely to produce a real resource without touching the disk.
+
+    fn(int $n): int => $n * 2
+        An arrow function (7.4+). Note that a closure is an OBJECT of class
+        Closure - so is_object() is true for it, and get_debug_type() reports
+        "Closure". This surprises people: PHP has no separate "function" type.
+
+    printf("%-10s | ...", ...)
+        printf formats output. %-10s means "string, left aligned, padded to 10
+        characters", which lines the table up. See file 26.
+
+    foreach ([...] as $fn) { if ($fn($value)) ... }
+        $fn holds a function NAME as a string, and $fn($value) calls it. This is
+        a callable string - one of PHP's callable forms (file 33).
+
+    substr($fn, 3)
+        Removes the "is_" prefix so the output column stays readable.
+
+    implode(', ', $checks) ?: '-'
+        If the array is empty, implode returns '' which is falsy, so the short
+        ternary substitutes '-'. Resources match none of the is_* checks used
+        here, which is why they show '-'.
+
+    KEY OBSERVATIONS FROM THE OUTPUT
+        - gettype() says "integer"/"double"/"boolean"/"NULL"; get_debug_type()
+          says "int"/"float"/"bool"/"null" - matching type declarations.
+        - For objects, gettype() only says "object" while get_debug_type() gives
+          the class name. That is why it is better in error messages.
+        - is_numeric() is true for int and float. It is also true for numeric
+          STRINGS like "42" - that is its purpose.
+        - is_scalar() excludes null, arrays and objects.
+
+
+EXPLANATION OF CODE 2 (debug_types.php)
+---------------------------------------
+    var_export($value, true)
+        Returns the value as valid PHP source ('0' with quotes, NULL in caps,
+        false as a keyword). The true argument means "return it" instead of
+        printing it, so it can be padded with str_pad.
+
+    var_dump output is the point of the exercise
+        int(0) and string(1) "0" are clearly different. bool(false), NULL and
+        string(0) "" are clearly different. All five are FALSY, so an if
+        treats them the same - but they are not the same value, and === can tell
+        them apart.
+
+    The print_r section
+        print_r prints 0 for both int 0 and string "0", and prints nothing at
+        all for false, null and ''. Four distinct values render as an empty
+        string. When you are debugging "why is my condition false", print_r
+        actively hides the answer. Use var_dump.
+
+
+EXPLANATION OF CODE 3 (validate_input.php)
+------------------------------------------
+    filter_var($input['id'] ?? null, FILTER_VALIDATE_INT)
+        Does two jobs at once: checks the value really represents an integer,
+        and returns it AS an int. Returns false when it does not. The ?? null
+        handles a missing key without a warning.
+
+    if ($id === false || $id <= 0)
+        The === is essential. A plain if (!$id) would also reject the perfectly
+        valid id 0, because 0 is falsy. This is the classic filter_var trap.
+
+    trim((string) ($input['name'] ?? ''))
+        Cast to string first (the value could be an array if someone posts
+        name[]=x, and trim() would raise a TypeError on an array). Then trim
+        whitespace, then compare with === '' rather than empty(), because
+        empty('0') is true and "0" may be a legitimate name.
+
+    FILTER_VALIDATE_FLOAT
+        Accepts "99.99" and returns float(99.99). Note it does not accept
+        thousands separators by default.
+
+    FILTER_VALIDATE_BOOL with FILTER_NULL_ON_FAILURE
+        Recognises "1", "true", "on", "yes" as true and "0", "false", "off",
+        "no", "" as false. Without the NULL_ON_FAILURE flag, invalid input
+        returns false - indistinguishable from a legitimate false. With the
+        flag, invalid input returns null, so $active ?? false makes the
+        fallback explicit.
+
+    RETURN SHAPE ['data' => ..., 'errors' => ...]
+        Returning both the clean data and the error list is the standard shape
+        for a validation function: the caller checks errors first, then uses the
+        typed data with confidence.
+
+    THE BIG IDEA
+        Convert and validate ONCE, at the boundary. After this function, the
+        rest of the application works with real ints, floats and bools - not
+        strings that look like numbers.
+
+
+EXPLANATION OF CODE 4 (object_types.php)
+----------------------------------------
+    interface Payable / class Invoice implements Payable
+        The interface declares a contract. Any class implementing it satisfies
+        "instanceof Payable" - which is what lets you write polymorphic code
+        (file 41).
+
+    final class RecurringInvoice extends Invoice
+        A subclass. It inherits the interface implementation too, so it is an
+        instance of Invoice AND of Payable.
+
+    $item::class
+        PHP 8.0 syntax returning the object's fully qualified class name as a
+        string. Equivalent to get_class($item) but shorter and IDE-friendly.
+
+    $item instanceof Invoice ? 'yes' : 'no '
+        instanceof returns bool and respects the whole inheritance chain plus
+        interfaces.
+
+    var_dump($item::class === Invoice::class) is false
+        An exact class-name comparison EXCLUDES subclasses. If you write
+        authorisation or dispatch logic this way, adding a subclass silently
+        breaks it. This is the concrete reason to prefer instanceof.
+
+
+--------------------------------------------------------------------------------
+7. INTERVIEW QUESTIONS
+--------------------------------------------------------------------------------
+
+============================= BEGINNER =============================
+
+Q1. How many data types does PHP have? Name them.
+ANSWER:
+    Eight. Four scalar: bool, int, float, string. Two compound: array, object.
+    Two special: null, resource.
+WHY THIS IS CORRECT:
+    It is the standard classification used in the PHP manual, and grouping them
+    shows understanding rather than a memorised list.
+
+Q2. What is the difference between null and an empty string?
+ANSWER:
+    null means "no value at all" and has its own type. An empty string is a
+    string of length zero - a real value. Both are falsy, so an if treats them
+    the same, but === can distinguish them: '' === null is false. In a database,
+    NULL means "unknown/not applicable" while '' is a known empty value.
+WHY THIS IS CORRECT:
+    It separates truthiness from identity and adds the database meaning, which
+    is where the distinction matters most in practice.
+
+Q3. Which function tells you the type of a variable?
+ANSWER:
+    get_debug_type() in modern PHP (8.0+), because its names match type
+    declarations and it returns the class name for objects. gettype() is the
+    older function but returns "integer", "double" and "boolean". For checks
+    inside conditions use the is_*() functions, and for debugging use var_dump()
+    which shows type, size and value together.
+WHY THIS IS CORRECT:
+    It names the right tool for each purpose instead of only one function.
+
+
+=========================== INTERMEDIATE ===========================
+
+Q4. What is the difference between gettype() and get_debug_type()?
+ANSWER:
+    gettype() returns legacy names - "integer", "double", "boolean", "NULL" -
+    which do not match the keywords used in type declarations, and it returns
+    just "object" for any object. get_debug_type() (PHP 8.0+) returns "int",
+    "float", "bool", "null" and the fully qualified class name for objects. Use
+    get_debug_type(), especially in exception messages.
+WHY THIS IS CORRECT:
+    It gives the exact naming differences and the object-class difference, which
+    is the practical reason to switch.
+
+Q5. Why is "resource" being removed from PHP?
+ANSWER:
+    Resources are an opaque legacy type with no methods, no type safety and no
+    consistent lifecycle. PHP is converting them into real objects that can have
+    types and methods: curl_init() returns a CurlHandle object since PHP 8.0,
+    GD returns GdImage, and OpenSSL functions return objects. The type still
+    exists for streams, but new APIs use objects.
+WHY THIS IS CORRECT:
+    It explains the motivation (type safety) and names the actual conversions,
+    which shows current knowledge rather than an outdated textbook answer.
+
+Q6. Everything from $_POST is a string. Why does that matter and what do you do
+    about it?
+ANSWER:
+    It matters because strict comparisons fail ('1' === 1 is false), arithmetic
+    can behave unexpectedly, and passing a string where an int is declared
+    throws a TypeError under strict_types. The fix is to validate and convert
+    once at the boundary using filter_var / filter_input with
+    FILTER_VALIDATE_INT, FLOAT or BOOL, and to compare the result with === false
+    rather than a truthiness check so that a valid 0 is not rejected.
+WHY THIS IS CORRECT:
+    It names the concrete failures and gives the standard boundary-validation
+    pattern including the 0 trap.
+
+Q7. What is the difference between is_numeric() and is_int()?
+ANSWER:
+    is_int() is true only for actual integer values. is_numeric() is true for
+    ints, floats AND numeric strings such as "42", "3.14", " 42" (leading
+    whitespace is allowed) and "1e3". So is_numeric('42') is true while
+    is_int('42') is false. Use is_numeric for raw input and is_int after
+    conversion.
+WHY THIS IS CORRECT:
+    It gives the exact boundary between them plus when each is appropriate.
+
+
+============================= ADVANCED =============================
+
+Q8. What happens when an integer exceeds PHP_INT_MAX?
+ANSWER:
+    It silently becomes a float. PHP has no integer overflow error and no
+    unsigned integers. Because floats have about 15 significant digits, very
+    large values lose precision, so an id or a big counter can start comparing
+    equal to a neighbouring value. For values beyond PHP_INT_MAX use strings
+    with the bcmath or gmp extensions.
+WHY THIS IS CORRECT:
+    It states the automatic conversion and then the real consequence -
+    precision loss - plus the correct tool.
+
+Q9. Why is a PHP string not the same as a sequence of characters?
+ANSWER:
+    A PHP string is a sequence of BYTES. In UTF-8 one character can be several
+    bytes, so strlen('é') is 2 and strlen('ह') is 3. Byte-based functions such
+    as strlen, substr, strtoupper and str_split can split or corrupt multibyte
+    characters. For text handling use the mb_* equivalents - mb_strlen,
+    mb_substr, mb_strtoupper - with UTF-8 as the encoding.
+WHY THIS IS CORRECT:
+    It gives the underlying reason and the practical rule, which is the whole
+    point of the question.
+
+Q10. Why should you prefer instanceof over comparing class names?
+ANSWER:
+     instanceof respects the full inheritance chain and interfaces, so it stays
+     correct when a subclass or an alternative implementation is introduced.
+     Comparing get_class($x) === Foo::class is an exact match that silently
+     excludes subclasses, which breaks polymorphism and violates the Liskov
+     substitution principle. Exact comparison is only appropriate when you
+     deliberately need that one concrete class.
+WHY THIS IS CORRECT:
+     It links the technical behaviour to a design principle and still allows the
+     legitimate exception.
+
+
+========================== SCENARIO BASED ==========================
+
+Q11. A comparison $row['id'] === $userId keeps failing even though both look
+     like 42. How do you debug it?
+ANSWER:
+     var_dump both values. Almost certainly one is int(42) and the other is
+     string(2) "42" - typically because PDO with emulated prepares returns
+     column values as strings, or because $userId came from $_GET. The fix is to
+     make the types consistent at the source: disable emulated prepares so PDO
+     returns native types, or cast/validate the input with FILTER_VALIDATE_INT
+     when it enters the application. Loosening to == would hide the bug rather
+     than fix it.
+WHY THIS IS CORRECT:
+     It uses the right diagnostic tool, identifies the two usual sources, and
+     rejects the tempting shortcut with a reason.
+
+Q12. An API returns data that your code sometimes reads as $data['name'] and
+     sometimes as $data->name, causing fatal errors. What went wrong?
+ANSWER:
+     json_decode() returns a stdClass object by default and an associative array
+     only when the second argument is true. Different parts of the code decoded
+     the same payload differently. The fix is a single decode helper used
+     everywhere, for example json_decode($json, true, 512, JSON_THROW_ON_ERROR),
+     so the shape is consistent and malformed JSON throws instead of silently
+     returning null. Better still, map the payload into a typed DTO immediately
+     so the rest of the code never touches raw arrays.
+WHY THIS IS CORRECT:
+     It names the exact flag responsible and gives both the quick fix and the
+     structural improvement.
+
+Q13. A price field stored as float shows 0.30000000000000004 in a report. What
+     is happening and what is the correct fix?
+ANSWER:
+     Floats are binary IEEE 754 values and cannot represent most decimal
+     fractions exactly, so 0.1 + 0.2 is not exactly 0.3. Rounding for display
+     hides it but arithmetic errors still accumulate. The correct fix is to stop
+     storing money as float: store the amount as an integer in the smallest unit
+     (paise/cents) and format on output, or use the bcmath extension or a
+     DECIMAL column with string handling. Never compare money floats with ===.
+WHY THIS IS CORRECT:
+     It explains the cause, rejects the cosmetic fix, and gives the standard
+     production solution. Full detail is in file 06.
+
+
+====================== REAL-TIME PROJECT QUESTIONS ======================
+
+Q14. How do you handle types at the boundary of a real application?
+ANSWER:
+     Treat every external source - request, database, API, file, environment -
+     as untyped strings, and convert once at the boundary. Requests go through
+     filter_input / a validation layer, API payloads are decoded and mapped into
+     typed DTOs, database rows are hydrated into typed objects. Inside the
+     application everything then has a real type, declare(strict_types=1) is on
+     in every file, and functions declare parameter and return types so a wrong
+     type fails immediately at the point it enters rather than deep in business
+     logic.
+WHY THIS IS CORRECT:
+     It describes the standard layered approach - validate at the edge, trust
+     inside - which is what production codebases actually do.
+
+Q15. When would you use an associative array and when a typed class for data?
+ANSWER:
+     An array is right for genuinely dynamic data: arbitrary key-value maps,
+     configuration, rows whose columns vary. A typed class or readonly DTO is
+     right whenever the shape is known - a User, an Order, an ApiResponse -
+     because you then get IDE autocompletion, static analysis, type errors at
+     construction instead of an "undefined array key" three layers later, and a
+     place to put behaviour and validation. The rule I follow is: if I find
+     myself documenting an array shape in a DocBlock, it should be a class.
+WHY THIS IS CORRECT:
+     It gives a decision rule rather than a preference, and the DocBlock heuristic
+     is a practical signal reviewers actually use.
+
+
+--------------------------------------------------------------------------------
+8. COMMON MISTAKES
+--------------------------------------------------------------------------------
+
+MISTAKE 1: Assuming $_GET/$_POST values are numbers.
+    if ($_GET['id'] === 1) is always false. Validate and convert first.
+
+MISTAKE 2: Using if (!$value) after filter_var with FILTER_VALIDATE_INT.
+    A valid 0 is falsy and would be rejected. Always compare === false.
+
+MISTAKE 3: Using float for money.
+    Rounding errors accumulate and comparisons fail. Use integers (smallest
+    unit) or bcmath. See file 06.
+
+MISTAKE 4: Using strlen() on UTF-8 text.
+    Returns bytes, not characters, and substr() can cut a character in half.
+    Use mb_strlen() and mb_substr().
+
+MISTAKE 5: Trusting gettype() names in comparisons.
+    gettype($x) === 'float' is ALWAYS false - it returns "double".
+    Use is_float() or get_debug_type().
+
+MISTAKE 6: Forgetting json_decode's second argument.
+    Object versus array shape mismatch causes fatal errors. Standardise on one.
+
+MISTAKE 7: Using == to compare values of different types.
+    In PHP 8 the rules improved, but == still converts. Use === by default.
+
+MISTAKE 8: Treating null as 0 or ''.
+    null + 1 is 1 with a deprecation notice; null in a string context is ''.
+    Handle null explicitly with ?? or a null check.
+
+MISTAKE 9: Storing phone numbers, PIN codes or order references as int.
+    Leading zeros are lost (0501 becomes 501) and they are never used for
+    arithmetic. Store them as strings.
+
+MISTAKE 10 (SECURITY): Skipping type validation on ids.
+    Passing unvalidated input into queries, file paths or authorisation checks
+    is how injection and IDOR bugs start. Validate the type first, then the
+    range, then authorisation.
+
+MISTAKE 11: Leaving var_dump() in committed code. It leaks internal structure
+    and breaks JSON responses.
+
+
+--------------------------------------------------------------------------------
+9. BEST PRACTICES
+--------------------------------------------------------------------------------
+
+ 1. Put declare(strict_types=1); at the top of every file so type errors surface
+    at the boundary instead of being silently converted.
+ 2. Declare parameter and return types on every function and method.
+ 3. Validate and convert external input ONCE, at the boundary, with
+    filter_var / filter_input or a validation layer.
+ 4. Use === and !== by default; use == only when you have a specific reason.
+ 5. Use get_debug_type() in error messages, is_*() in conditions, var_dump()
+    only while debugging.
+ 6. Use instanceof for object type checks, not class-name string comparison.
+ 7. Never use float for money. Integers in the smallest unit, or bcmath.
+ 8. Use mb_* functions for any user-facing text.
+ 9. Prefer typed classes and readonly DTOs over associative arrays for data with
+    a known shape.
+10. Return [] rather than null for empty collections, and use nullable return
+    types (?User) to document genuinely optional results.
+11. Run PHPStan or Psalm - they catch type mistakes statically, before the code
+    ever runs.
+
+
+--------------------------------------------------------------------------------
+10. IMPORTANT NOTES (QUICK REVISION)
+--------------------------------------------------------------------------------
+
+KEY POINTS TO REMEMBER
+    - 8 TYPES: bool, int, float, string | array, object | null, resource.
+    - Scalar = bool, int, float, string. Compound = array, object.
+      Special = null, resource.
+    - PHP is DYNAMICALLY typed: the type belongs to the value.
+    - Strings are BYTES, not characters. strlen('é') = 2.
+    - Ints overflow into FLOATS. No unsigned ints.
+    - Closures are OBJECTS (class Closure).
+    - Resource is legacy; new APIs return objects (CurlHandle, GdImage).
+    - ALL external input is a STRING. Convert at the boundary.
+    - gettype(): "integer","double","boolean","NULL"  (legacy names)
+      get_debug_type(): "int","float","bool","null", class name  (use this)
+
+IMPORTANT SYNTAX
+    declare(strict_types=1);
+    function f(int $id, ?string $name = null): ?User
+    $x instanceof SomeClass
+    $obj::class
+    0xFF  0b1010  0o755  1_000_000        integer literal forms
+    (int) (float) (string) (bool) (array) (object)     casts
+
+FREQUENTLY USED FUNCTIONS
+    get_debug_type($v)      modern type name / class name
+    gettype($v)             legacy type name
+    var_dump($v)            type + size + value (debugging)
+    var_export($v, true)    value as PHP source
+    is_int is_float is_string is_bool is_array is_object is_null
+    is_numeric is_callable is_iterable is_scalar is_countable
+    settype($v, 'int')      change a variable's type in place
+    intval / floatval / strval / boolval    convert and return
+    filter_var($v, FILTER_VALIDATE_INT|FLOAT|BOOL|EMAIL|URL|IP)
+    filter_input(INPUT_GET, 'id', FILTER_VALIDATE_INT)
+    get_class / get_parent_class / method_exists / property_exists
+    PHP_INT_MAX  PHP_INT_MIN  PHP_INT_SIZE  PHP_FLOAT_EPSILON
+
+COMMON INTERVIEW POINTS
+    - "How many types?" -> 8, in three groups.
+    - "gettype vs get_debug_type" -> legacy names vs declaration names + class.
+    - "null vs '' vs 0" -> different types, all falsy, distinguished by ===.
+    - "Why is $_POST['id'] === 1 false?" -> input is always a string.
+    - "instanceof vs get_class" -> inheritance-aware vs exact match.
+
+QUICK REVISION CHECKLIST
+    [ ] I can name all 8 types in their three groups.
+    [ ] I know why get_debug_type() is preferred over gettype().
+    [ ] I can explain why strings are bytes and what breaks because of it.
+    [ ] I know that all request input is a string and how to convert it safely.
+    [ ] I know the filter_var === false trap with the value 0.
+    [ ] I use instanceof, not class-name comparison.
+    [ ] I never use float for money.
+
+
+--------------------------------------------------------------------------------
+11. PRACTICAL EXERCISES
+--------------------------------------------------------------------------------
+
+EXERCISE 1 (BASIC)
+    Write type_report.php that creates one variable of each of the 8 types
+    (use fopen('php://memory','r') for the resource) and prints a table with
+    four columns: the value, gettype(), get_debug_type(), and whether
+    is_scalar() is true. Then write two sentences explaining every place where
+    gettype() and get_debug_type() disagree.
+    GOAL: fix the eight types and the two naming systems in memory.
+
+EXERCISE 2 (INTERMEDIATE)
+    Write a function describeValue(mixed $value): string that returns a
+    human-readable description, for example:
+        int(42)
+        string(8) "Blue Pen"
+        float(99.99)
+        array(3) [list]        <- use array_is_list() to say list or map
+        object(App\User)
+        null
+    Handle all 8 types plus closures. Then run it over an array of at least 12
+    mixed values including '0', 0, 0.0, false, null, [], [1,2], ['a'=>1] and a
+    closure, and print the results. Do not use var_dump inside the function -
+    build the string yourself.
+    GOAL: this forces you to use get_debug_type, is_* and array_is_list
+    together, and produces a debugging helper you will genuinely reuse.
+
+EXERCISE 3 (REAL-TIME PROJECT STYLE)
+    Build a small input-validation layer for a product form.
+      - Write validateProduct(array $input): array returning
+        ['data' => [...], 'errors' => [...]] and validating:
+            id       required, positive integer
+            name     required, string, 3-100 characters after trimming
+                     (use mb_strlen, not strlen)
+            price    required, float >= 0, and reject more than 2 decimals
+            quantity required, integer >= 0
+            email    required, valid email (FILTER_VALIDATE_EMAIL)
+            active   optional boolean, default false
+            tags     optional array of strings, each non-empty after trimming
+      - Feed it three inputs: a fully valid one, one with every field wrong, and
+        one where quantity is '0' and active is 'off' (both valid values that
+        naive truthiness checks would wrongly reject).
+      - Print the typed data with var_dump so you can SEE that ids are int,
+        prices are float and flags are bool.
+      - Add a comment explaining why you used === false rather than ! on the
+        filter_var results.
+    GOAL: this is the exact boundary-validation code real applications need, and
+    the third test case is the trap most developers fail.
+
+================================================================================
+END OF TOPIC 05
+NEXT: 06-integers-floats-precision.txt
+================================================================================

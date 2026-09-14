@@ -1,0 +1,312 @@
+PHP INTERVIEW PREP - CORE CONCEPTS (LEVEL C)
+Extracted from PHP_MASTER_SYLLABUS.md - the must-know tier only.
+Environment: PHP 8.5.4 (XAMPP, Windows)
+168 items. Mark each one done when you can explain it AND write a snippet.
+
+==============================================================
+TIER 0 - Language Setup & Runtime Model
+==============================================================
+
+  1. How PHP executes: request -> SAPI (CLI / Apache mod_php / PHP-FPM) -> Zend Engine -> opcodes -> execute -> teardown
+  2. Shared-nothing architecture - every request starts with a clean memory state (the #1 conceptual difference from Node/Java)
+  3. php.ini - locating it (php --ini), key directives: display_errors, error_reporting, memory_limit, max_execution_time, upload_max_filesize, post_max_size, date.timezone
+  4. PHP tags <?php ?>, short echo <?= ?>, why you omit the closing tag in pure-PHP files
+  5. Comments, statement termination, case sensitivity rules (variables = sensitive, functions/classes = insensitive)
+
+==============================================================
+TIER 1 - Variables, Types & Operators
+==============================================================
+
+-- Variables --
+
+  6. Declaration, $ sigil, naming rules, dynamic/variable variables $$name
+  7. Scope: local, global, static, function parameters - and why PHP has no block scope
+  8. global keyword vs $GLOBALS superglobal (and why both are code smells)
+  9. static variables inside functions (persist across calls in same request)
+ 10. Assignment by value vs by reference (&) - the single most common gotcha
+ 11. Constants: define() vs const - differences (scope, arrays, conditional definition, case sensitivity)
+
+-- Data Types --
+
+ 12. Scalars: int, float, string, bool
+ 13. Compound: array, object, callable, iterable
+ 14. Special: null, resource (legacy - progressively replaced by objects)
+ 15. gettype(), get_debug_type() (8.0+, prefer it), var_dump(), is_*() family
+ 16. Integer overflow -> float, PHP_INT_MAX, PHP_INT_SIZE
+ 17. Float precision - 0.1 + 0.2 !== 0.3, PHP_FLOAT_EPSILON, when to use bcmath/gmp (money!)
+ 18. Type juggling rules and PHP 8's saner string<->number comparison (0 == "foo" was true pre-8, now false)
+ 19. Loose == vs strict === - the comparison table you must memorize
+ 20. Truthy/falsy table: 0, 0.0, "", "0", [], null, false are falsy - "0.0", " ", "false", [0] are truthy
+ 21. Explicit casting (int), (float), (string), (bool), (array), (object)
+
+-- Operators --
+
+ 22. Arithmetic,  exponent, intdiv(), modulo behavior with negatives, fdiv()
+ 23. Assignment + compound (+=, .=, ??=)
+ 24. Comparison, <=> spaceship (7.0+) and its use in usort
+ 25. Logical &&/|| vs and/or - precedence trap with =
+ 26. Null coalescing ?? vs ternary ?: vs isset() vs empty() - know the exact differences
+ 27. Nullsafe operator ?-> (8.0+) and its limits (doesn't apply to array access)
+
+==============================================================
+TIER 2 - Control Structures
+==============================================================
+
+ 28. if / elseif / else, alternative syntax (if: endif;) for templates
+ 29. switch - loose comparison, fallthrough, default
+ 30. match expression (8.0+) - strict comparison, returns a value, exhaustive (throws UnhandledMatchError), no fallthrough. Classic "match vs switch" question
+ 31. while, do-while, for, foreach (by value, by reference, with key, with destructuring)
+ 32. break N / continue N
+ 33. goto (know it exists, never use it)
+ 34. include vs require vs *_once - failure behavior, return values, performance
+ 35. exit / die, exit codes, register_shutdown_function()
+
+==============================================================
+TIER 3 - Arrays (Huge Interview Topic)
+==============================================================
+
+ 36. PHP arrays are ordered hash maps - not real arrays. Understand the implication
+ 37. Indexed, associative, multidimensional; short syntax []
+ 38. Key coercion rules: "1" -> 1, 1.7 -> 1, true -> 1, null -> ""
+ 39. Adding/removing: []=, array_push/pop/shift/unshift, unset() (and why it doesn't reindex)
+ 40. array_values(), array_keys(), array_key_exists() vs isset() (the null-value difference), in_array() strict flag
+ 41. Sorting family: sort, rsort, asort, arsort, ksort, krsort, usort, uasort, uksort, natsort, array_multisort - know which preserve keys
+ 42. Functional trio: array_map, array_filter (with ARRAY_FILTER_USE_KEY / USE_BOTH), array_reduce - and their key-preservation quirks
+ 43. array_merge vs the + operator - different behavior for numeric keys
+ 44. array_combine, array_flip, array_fill, array_fill_keys, range()
+ 45. array_slice (preserve_keys), array_splice, array_chunk, array_column, array_pad
+ 46. Set ops: array_unique, array_diff, array_diff_key, array_diff_assoc, array_intersect + key/assoc variants
+ 47. array_search, count() recursive mode, array_sum, array_product, min, max
+ 48. Practice: group-by, index-by-id, flatten nested, sum by category, find duplicates, sort objects by property - write these without docs
+
+==============================================================
+TIER 4 - Strings
+==============================================================
+
+ 49. Single vs double quotes - interpolation, escape sequences, the performance myth
+ 50. Heredoc <<<EOT and Nowdoc <<<'EOT'; 7.3 flexible indentation
+ 51. Interpolation forms: "$var", "{$obj->prop}", "{$arr['key']}", and the deprecated "${var}" (8.2)
+ 52. Core functions: strlen, strtolower/upper, ucfirst, ucwords, trim/ltrim/rtrim, str_pad, str_repeat, strrev
+ 53. Search: strpos, strrpos, stripos, strstr, substr, substr_count
+ 54. 8.0+ str_contains, str_starts_with, str_ends_with - very common interview mention
+ 55. Replace: str_replace, str_ireplace, substr_replace, strtr
+ 56. Split/join: explode (with limit, negative limit), implode, str_split, preg_split, wordwrap, nl2br
+ 57. sprintf / printf / vsprintf format specifiers, number_format
+ 58. Comparison: strcmp, strcasecmp, strncmp, strnatcmp, hash_equals() for secrets (timing-safe)
+
+-- Regular Expressions --
+
+ 59. PCRE syntax: delimiters, anchors, character classes, quantifiers (greedy vs lazy), groups, alternation
+ 60. preg_match, preg_match_all (with PREG_SET_ORDER / PREG_PATTERN_ORDER), preg_replace, preg_replace_callback, preg_split, preg_quote
+
+==============================================================
+TIER 5 - Functions
+==============================================================
+
+ 61. Declaration, parameters, return values, default args (must be trailing)
+ 62. Pass by value vs pass by reference &$param
+ 63. Variadic ...$args, func_get_args(), argument unpacking at the call site
+ 64. Type declarations: scalar, class, array, callable, iterable, self, static, nullable ?T
+ 65. Return types incl. void, never (8.1), static (8.0), mixed (8.0)
+ 66. Union types int|string (8.0), intersection types A&B (8.1), DNF types (A&B)|null (8.2)
+ 67. Named arguments (8.0) - skipping optionals, combining with positional
+ 68. Anonymous functions (closures), use by value vs by reference
+ 69. Arrow functions fn() (7.4) - implicit by-value capture, single expression only. Closure vs arrow fn = frequent question
+
+==============================================================
+TIER 6 - OOP (The Interview Core)
+==============================================================
+
+-- Fundamentals --
+
+ 70. Class, object, new, $this, ->, ::
+ 71. Properties, methods, constructor __construct, destructor __destruct
+ 72. Visibility: public, protected, private - and what each means for inheritance
+ 73. static properties/methods, self:: vs static:: (late static binding) vs parent::
+ 74. Class constants, final constants, typed constants (8.3)
+ 75. Typed properties (7.4), the uninitialized state, readonly properties (8.1), readonly classes (8.2)
+ 76. Constructor property promotion (8.0) - big boilerplate reduction
+ 77. Asymmetric visibility (8.4) - public private(set) string $name
+ 78. $this binding; static context has no $this
+
+-- The Four Pillars (expect to be asked verbatim) --
+
+ 79. Encapsulation - visibility, getters/setters, invariants
+ 80. Inheritance - extends, single inheritance, method overriding, parent::__construct()
+ 81. Polymorphism - interface-based, method overriding; PHP has no method overloading (explain why + the __call workaround)
+ 82. Abstraction - abstract classes and methods
+
+-- Structures --
+
+ 83. Abstract class vs Interface - when to use each (the most-asked OOP question)
+ 84. Interfaces: multiple implementation, constants, extends on multiple interfaces
+ 85. Traits - horizontal reuse, conflict resolution (insteadof, as), abstract/static members, properties, constants in traits (8.2)
+ 86. Trait vs Interface vs Abstract class - the comparison table
+ 87. final classes and methods - why "prefer composition over inheritance"
+ 88. Enums (8.1) - pure vs backed, cases(), from(), tryFrom(), methods, interfaces, constants
+
+-- Magic Methods --
+
+ 89. __construct, __destruct
+ 90. __get, __set, __isset, __unset - property overloading
+ 91. __call, __callStatic - method overloading simulation
+ 92. __toString, __invoke
+
+-- Object Semantics --
+
+ 93. Objects are assigned by handle, not by reference - explain the difference precisely
+ 94. == vs === for objects (same class + equal props vs same instance)
+
+-- Advanced OOP --
+
+ 95. Autoloading - spl_autoload_register, PSR-4, Composer's autoloader, classmap vs PSR-4, composer dump-autoload -o
+
+==============================================================
+TIER 7 - Errors & Exceptions
+==============================================================
+
+ 96. Error levels: E_NOTICE, E_WARNING, E_DEPRECATED, E_ERROR, E_USER_*, E_ALL
+ 97. PHP 7+ Throwable hierarchy: Throwable -> Error (TypeError, ValueError, ArgumentCountError, ArithmeticError, DivisionByZeroError, AssertionError) and Exception (RuntimeException, LogicException, InvalidArgumentException, OutOfBoundsException, JsonException, PDOException, ...)
+ 98. try / catch / finally - execution order, finally overriding a return
+ 99. Multi-catch catch (A|B $e) (7.1), non-capturing catch catch (Exception) (8.0)
+100. Custom exception classes, exception chaining ($previous), getMessage/getCode/getFile/getLine/getTrace/getTraceAsString/getPrevious
+101. set_error_handler, set_exception_handler, register_shutdown_function, converting errors -> ErrorException
+102. PHP 8 changes: many warnings promoted to Error; undefined array key / undefined variable severity changes
+
+==============================================================
+TIER 8 - Web / HTTP Layer
+==============================================================
+
+103. Request lifecycle end-to-end: browser -> web server -> PHP-FPM -> script -> response
+104. Superglobals: $_GET, $_POST, $_REQUEST (avoid), $_SERVER, $_FILES, $_COOKIE, $_SESSION, $_ENV, $GLOBALS
+105. Important $_SERVER keys: REQUEST_METHOD, REQUEST_URI, HTTP_HOST, REMOTE_ADDR, HTTP_X_FORWARDED_FOR (and why it's untrusted), CONTENT_TYPE
+106. GET vs POST vs PUT/PATCH/DELETE; idempotency; when PHP does NOT populate $_POST (JSON body -> php://input)
+107. header(), status codes, http_response_code(), redirects (301 vs 302 vs 307), the "headers already sent" error
+108. Cookies: setcookie(), the options array, HttpOnly, Secure, SameSite, Domain, Path, expiry
+109. Sessions: session_start(), $_SESSION, session ID, storage handlers (files/redis/db), session_regenerate_id() (fixation defense), session_destroy(), GC, session locking & the blocking-request problem
+110. File uploads: enctype, $_FILES structure, error codes, is_uploaded_file, move_uploaded_file, MIME validation (never trust type), size limits, multi-file uploads
+111. Output buffering: ob_start, ob_get_clean, ob_end_flush - why it matters for headers and templating
+
+==============================================================
+TIER 9 - Databases
+==============================================================
+
+112. PDO vs MySQLi - differences, why PDO (many drivers, named params, consistent API)
+113. PDO connection: DSN, options array, ERRMODE_EXCEPTION, ATTR_EMULATE_PREPARES => false, ATTR_DEFAULT_FETCH_MODE, charset in the DSN
+114. Prepared statements - how they prevent SQL injection at the protocol level; emulated vs native prepares
+115. prepare/execute/bindParam/bindValue (by-ref vs by-value difference), positional ? vs named :name
+116. Fetch modes: FETCH_ASSOC, FETCH_OBJ, FETCH_CLASS, FETCH_COLUMN, FETCH_KEY_PAIR, FETCH_GROUP; fetchAll vs iterating
+117. lastInsertId(), rowCount() caveats
+118. Transactions: beginTransaction/commit/rollBack, ACID, the nested-transaction problem + savepoints
+119. SQL injection - vectors, why escaping isn't enough, dynamic identifiers (table/column names) needing whitelists, LIMIT with emulated prepares
+
+==============================================================
+TIER 10 - Security (Expect Deep Questions)
+==============================================================
+
+120. SQL Injection - prepared statements, whitelisting identifiers
+121. XSS - stored/reflected/DOM; htmlspecialchars($s, ENT_QUOTES, 'UTF-8'); context-aware escaping (HTML body vs attribute vs JS vs URL vs CSS); CSP headers
+122. CSRF - synchronizer token pattern, SameSite cookies, double-submit, why GET must be safe
+123. Password hashing - password_hash() (bcrypt/argon2id), password_verify(), password_needs_rehash(), cost factor, never MD5/SHA1, salting is automatic
+124. Session security: regeneration on privilege change, session.cookie_httponly, cookie_secure, use_strict_mode, fixation vs hijacking
+125. File upload security - extension whitelist, MIME re-check, store outside webroot, randomize names, never include an upload
+126. File inclusion - LFI/RFI, allow_url_include, path traversal, realpath() + basedir checks
+127. Command injection - escapeshellarg, escapeshellcmd, prefer proc_open with array args
+128. Insecure deserialization - unserialize() gadget chains; use JSON instead
+129. Randomness: random_bytes(), random_int(), bin2hex() - never rand()/mt_rand()/uniqid() for security
+
+==============================================================
+TIER 11 - Filesystem, Dates, Misc Builtins
+==============================================================
+
+-- Files --
+
+130. fopen modes, fread, fwrite, fgets, fclose, feof, fseek
+131. file_get_contents, file_put_contents (with FILE_APPEND, LOCK_EX), file(), readfile()
+132. file_exists, is_file, is_dir, is_readable/writable, filesize, filemtime, unlink, rename, copy
+133. Directories: mkdir (recursive), rmdir, scandir, glob, opendir/readdir, DirectoryIterator, RecursiveDirectoryIterator
+134. Paths: basename, dirname, pathinfo, realpath, __DIR__, DIRECTORY_SEPARATOR
+
+-- Date & Time --
+
+135. date(), time(), mktime(), strtotime() and its parsing quirks
+136. DateTime / DateTimeImmutable - prefer Immutable; modify, add, sub, diff, format
+137. DateInterval, DatePeriod, DateTimeZone
+138. Timezones, the UTC-storage convention, DST pitfalls
+
+==============================================================
+TIER 12 - Design Patterns & Architecture
+==============================================================
+
+-- Creational --
+
+139. Singleton (and why it's an anti-pattern for testing)
+140. Factory Method, Abstract Factory, Static Factory
+
+-- Structural --
+
+141. Adapter, Decorator, Facade, Proxy (lazy loading)
+
+-- Behavioral --
+
+142. Strategy, Observer (event dispatcher), Template Method
+
+-- Architectural --
+
+143. MVC - precise responsibilities of each layer, fat model / thin controller
+144. SOLID - be able to give a PHP example of each violation and its fix
+145. DRY, KISS, YAGNI, Law of Demeter, composition over inheritance
+
+==============================================================
+TIER 13 - Tooling & Ecosystem
+==============================================================
+
+146. Composer - composer.json vs composer.lock, require vs require-dev, semver constraints (^, ~, >=), install vs update, autoload sections (psr-4, files, classmap), scripts, platform requirements
+147. PSR standards: PSR-1/PSR-12 (style), PSR-4 (autoload), PSR-3 (logging), PSR-7/15/17/18 (HTTP), PSR-11 (container), PSR-6/16 (caching), PSR-14 (events)
+148. PHPUnit - test structure, assertions, setUp/tearDown, data providers, mocks/stubs/spies, expectException, coverage
+
+==============================================================
+TIER 14 - Frameworks (Know At Least One Deeply)
+==============================================================
+
+-- Laravel (most commonly asked) --
+
+149. Request lifecycle, service container, service providers, facades (and how they work under the hood)
+150. Routing, route model binding, middleware, controllers, form requests, validation rules
+151. Eloquent: models, relationships (hasOne/hasMany/belongsTo/belongsToMany/morphTo/hasManyThrough), eager loading, scopes, accessors/mutators/casts, observers, soft deletes
+152. Migrations, seeders, factories
+153. Blade templating, components, layouts
+
+==============================================================
+TIER 15 - Performance & Scaling
+==============================================================
+
+154. OPcache configuration & measuring hit rate
+155. Caching layers: opcode, object cache (Redis/Memcached), HTTP cache, CDN, query cache
+156. Identifying bottlenecks: profiling (Xdebug/Blackfire/Tideways), slow query log, APM
+157. N+1 queries, unnecessary queries, SELECT *, pagination instead of full loads
+
+==============================================================
+TIER 17 - Coding Round Preparation
+==============================================================
+
+-- Algorithms in PHP --
+
+158. String manipulation: reverse (multibyte-safe), palindrome, anagram, word/char frequency, first non-repeating char, longest substring without repeats
+159. Arrays: two-sum, max subarray, remove duplicates, rotate, merge sorted, missing number, majority element, group anagrams
+160. Sorting: bubble/selection/insertion (explain), merge sort, quick sort; what PHP's sort() uses internally
+161. Searching: linear, binary search (iterative + recursive)
+162. Recursion: factorial, fibonacci (+ memoization), directory traversal, flatten nested array
+163. FizzBuzz, prime check/sieve, GCD/LCM, Armstrong number, leap year, pattern printing
+
+-- Practical Build Tasks --
+
+164. CRUD with PDO + prepared statements
+165. Login/registration with password_hash, sessions, CSRF token
+166. File upload with validation
+167. Pagination
+168. REST API endpoint returning JSON with proper status codes
+
+==============================================================
+TOTAL CORE CONCEPTS: 168
+==============================================================
